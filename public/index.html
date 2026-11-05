@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ThaiMap — Family Trip Planner</title>
+  <meta name="theme-color" content="#0f766e" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏝️</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="panel" class="panel">
+      <button id="sheetHandle" class="sheet-handle" aria-label="Expand or collapse panel"><span></span></button>
+      <header class="brand">
+        <div class="brand-mark">🇹🇭</div>
+        <div>
+          <h1>ThaiMap</h1>
+          <p id="familyBadge" class="family-badge">Not in a family yet</p>
+        </div>
+      </header>
+
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="explore" role="tab">🧭 Explore</button>
+        <button class="tab" data-tab="plan" role="tab">🗓️ Plan</button>
+        <button class="tab" data-tab="family" role="tab">💬 Family <span id="unreadDot" class="dot hidden"></span></button>
+      </nav>
+
+      <section id="tab-explore" class="tab-body">
+        <div class="search">
+          <input id="search" type="search" placeholder="Search temples, beaches, khao soi…" autocomplete="off" />
+          <select id="region" aria-label="Jump to region"></select>
+        </div>
+        <div id="chips" class="chips"></div>
+        <div id="placeDetail" class="detail hidden"></div>
+        <div id="placeList" class="list"></div>
+      </section>
+
+      <section id="tab-plan" class="tab-body hidden">
+        <div class="plan-top">
+          <select id="planSelect" aria-label="Choose day"></select>
+          <button id="newPlanBtn" class="btn">＋ New day</button>
+        </div>
+        <div id="planEditor"></div>
+        <h3 class="section-title">Ready-made days</h3>
+        <div id="templateFilters" class="chips small"></div>
+        <div id="templates" class="templates"></div>
+      </section>
+
+      <section id="tab-family" class="tab-body hidden">
+        <div id="familyCard" class="card"></div>
+        <div id="liveCard" class="card live hidden"></div>
+        <h3 class="section-title">Latest from the family</h3>
+        <div id="feed" class="feed"></div>
+      </section>
+    </aside>
+
+    <main id="mapWrap">
+      <div id="map"></div>
+      <div class="fab-stack">
+        <button id="dropNoteBtn" class="fab" title="Drop a note on the map">📍<span>Note</span></button>
+        <button id="meetBtn" class="fab" title="Set a meetup point">🚩<span>Meet</span></button>
+        <button id="familyBtn" class="fab" title="Find the family on the map">👪</button>
+        <button id="locateBtn" class="fab" title="Where am I?">🎯</button>
+        <button id="fitThaiBtn" class="fab" title="Show all of Thailand">🗺️</button>
+      </div>
+      <div id="modeBanner" class="mode-banner hidden"></div>
+      <div id="connBanner" class="conn-banner hidden"></div>
+    </main>
+  </div>
+
+  <dialog id="joinDialog" class="dialog">
+    <form id="joinForm" method="dialog">
+      <h2>Join your family trip</h2>
+      <p class="muted">Everyone using the same <b>family code</b> sees the same notes and day plans, live.</p>
+      <label>Your name <input id="joinName" required maxlength="40" placeholder="e.g. Mom, Erik, Grandpa" /></label>
+      <label>Family code <input id="joinCode" required pattern="[a-zA-Z0-9\-]{3,40}" maxlength="40" placeholder="e.g. svensson-thailand-2027" /></label>
+      <div class="color-row" id="colorRow"></div>
+      <div class="dialog-actions">
+        <button type="button" id="genCode" class="btn ghost">🎲 New code</button>
+        <button type="submit" class="btn primary">Let’s go</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="neighbors.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

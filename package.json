@@ -1,0 +1,12 @@
+{
+  "name": "thaimap",
+  "version": "1.0.0",
+  "description": "Map-first Thailand travel planner with shared family notes and day plans",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}
