@@ -42,7 +42,8 @@ export default function MobileApp() {
   const tab = getTab();
   const [snap, setSnapState] = useState<Snap>('half');
   const sheetH = useRef(window.innerHeight * 0.5 + TABBAR);
-  const insets = () => ({ l: 0, t: 96, r: 62, b: sheetH.current + 8 });
+  // no top inset: the map runs edge to edge under the status bar and the floating title; only the toolbars use safe areas
+  const insets = () => ({ l: 0, t: 0, r: 62, b: sheetH.current + 8 });
   const { ref: mapRef, ctl } = useMapController(insets, 'minimal');
   const setSnap = (s: Snap) => {
     const before = ctl?.currentInsets();
