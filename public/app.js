@@ -70,6 +70,7 @@
     lastSeen: LS.get('lastSeen', 0),
     tab: 'explore',
     meetups: [], locations: {},
+    trips: [], activeTripId: LS.get('activeTrip', null), view: 'trip', openIdeas: new Set(),
     sharing: LS.get('sharing', false),
   };
   const dirty = new Set(); const lastRev = {}; const saveTimers = {};
@@ -77,7 +78,7 @@
 
   // ── data layer (server, or local-only fallback) ─────────────
   const localKey = () => 'local:' + (state.family || 'solo');
-  const persistLocal = () => LS.set(localKey(), { notes: state.notes, plans: state.plans });
+  const persistLocal = () => LS.set(localKey(), { notes: state.notes, plans: state.plans, trips: state.trips });
   const base = () => `/api/family/${encodeURIComponent(state.family)}`;
   async function req(method, path = '', body) {
     const r = await fetch(base() + path, {
@@ -93,17 +94,19 @@
     if (state.family && location.protocol.startsWith('http')) {
       try {
         const data = await req('GET');
-        state.notes = data.notes; state.plans = data.plans; state.online = true;
+        state.notes = data.notes; state.plans = data.plans; state.trips = data.trips || []; state.online = true;
         loadLive(data);
         openStream();
       } catch { /* fall back to local */ }
     }
     if (!state.online) {
       const local = LS.get(localKey(), { notes: [], plans: [] });
-      state.notes = local.notes; state.plans = local.plans;
+      state.notes = local.notes; state.plans = local.plans; state.trips = local.trips || [];
       state.meetups = []; state.locations = {};
     }
     if (!state.plans.find((p) => p.id === state.activePlanId)) state.activePlanId = state.plans[0]?.id || null;
+    if (!activeTrip() && !(state.activeTripId === '__loose' && state.plans.some((p) => !p.tripId)))
+      state.activeTripId = state.trips[0]?.id || (state.plans.some((p) => !p.tripId) ? '__loose' : null);
     setConnBanner();
     renderAll();
     if (state.sharing && state.online) startSharing();
@@ -119,15 +122,15 @@
     es.onopen = async () => {
       setConnBanner();
       if (first) { first = false; return; }
-      try { const d = await req('GET'); state.notes = d.notes; mergePlans(d.plans); loadLive(d); renderAll(); if (myPos) sendPosition(); } catch { /* retry later */ }
+      try { const d = await req('GET'); state.notes = d.notes; mergeDocs('plans', d.plans); mergeDocs('trips', d.trips || []); loadLive(d); renderAll(); if (myPos) sendPosition(); } catch { /* retry later */ }
     };
     es.onerror = () => setConnBanner('Reconnecting to family…');
     es.onmessage = (e) => { try { applyEvent(JSON.parse(e.data)); } catch { /* ignore */ } };
   }
 
-  function mergePlans(serverPlans) {
-    const keep = state.plans.filter((p) => dirty.has(p.id));
-    state.plans = serverPlans.filter((p) => !dirty.has(p.id)).concat(keep);
+  function mergeDocs(kind, serverDocs) {
+    const keep = state[kind].filter((p) => dirty.has(p.id));
+    state[kind] = serverDocs.filter((p) => !dirty.has(p.id)).concat(keep);
   }
 
   function setConnBanner(msg) {
@@ -161,6 +164,17 @@
       if (i >= 0) state.plans[i] = p; else state.plans.push(p);
       if (!state.activePlanId) state.activePlanId = p.id;
       onPlansChanged();
+    } else if (ev.type === 'trip:put') {
+      const t = ev.trip;
+      if (dirty.has(t.id) || (lastRev[t.id] && t.rev === lastRev[t.id])) return;
+      const i = state.trips.findIndex((x) => x.id === t.id);
+      if (i >= 0) state.trips[i] = t; else { state.trips.push(t); if (!activeTrip()) state.activeTripId = t.id; }
+      if (t.updatedBy && t.updatedBy !== state.me?.name && i < 0) toast(`🧳 ${t.updatedBy} created the trip “${t.name}”`);
+      onPlansChanged();
+    } else if (ev.type === 'trip:delete') {
+      state.trips = state.trips.filter((t) => t.id !== ev.id);
+      if (state.activeTripId === ev.id) { state.activeTripId = state.trips[0]?.id || null; state.view = 'trip'; }
+      onPlansChanged();
     } else if (ev.type === 'plan:delete') {
       state.plans = state.plans.filter((p) => p.id !== ev.id);
       if (state.activePlanId === ev.id) state.activePlanId = state.plans[0]?.id || null;
@@ -187,18 +201,19 @@
     applyEvent({ type: 'note:delete', ids: [id, ...state.notes.filter((n) => n.parentId === id).map((n) => n.id)] });
   }
 
-  function queueSave(plan, delay = 600) {
-    dirty.add(plan.id);
-    clearTimeout(saveTimers[plan.id]);
-    saveTimers[plan.id] = setTimeout(() => savePlan(plan.id), delay);
+  // kind: 'plans' | 'trips' — debounced save with our own-echo suppression via rev
+  function queueSave(doc, delay = 600, kind = 'plans') {
+    dirty.add(doc.id);
+    clearTimeout(saveTimers[doc.id]);
+    saveTimers[doc.id] = setTimeout(() => saveDoc(kind, doc.id), delay);
   }
-  async function savePlan(id) {
-    const plan = state.plans.find((p) => p.id === id);
-    if (!plan) return;
-    plan.rev = rid(); lastRev[id] = plan.rev; plan.updatedBy = state.me?.name || '';
+  async function saveDoc(kind, id) {
+    const doc = state[kind].find((p) => p.id === id);
+    if (!doc) return;
+    doc.rev = rid(); lastRev[id] = doc.rev; doc.updatedBy = state.me?.name || '';
     dirty.delete(id);
     if (!state.online) return persistLocal();
-    try { await req('PUT', '/plans/' + id, plan); } catch (e) { toast('Could not save plan: ' + e.message); }
+    try { await req('PUT', `/${kind}/` + id, doc); } catch (e) { toast('Could not save: ' + e.message); }
   }
   async function deletePlan(id) {
     clearTimeout(saveTimers[id]); dirty.delete(id);
@@ -329,6 +344,7 @@
 
   function renderRoute() {
     planLayer.clearLayers();
+    if (!state.preview && activeTrip() && state.view !== 'day') { drawTrip(activeTrip()); return; }
     const stops = state.preview ? state.preview.stops : activePlan()?.stops || [];
     const pts = stops.map(stopCoord).filter(Boolean);
     if (pts.length > 1) {
@@ -440,7 +456,7 @@
     if (!p) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     const c = CATEGORIES[p.cat];
     const roots = state.notes.filter((n) => n.placeId === p.id && !n.parentId).sort((a, b) => a.createdAt - b.createdAt);
-    const planOpts = state.plans.map((pl) => `<option value="${esc(pl.id)}" ${pl.id === state.activePlanId ? 'selected' : ''}>${esc(pl.name)}</option>`).join('');
+    const planOpts = addToDayOptions(p);
     preserve(el, () => {
       el.style.setProperty('--c', c.color);
       el.innerHTML = `
@@ -495,8 +511,9 @@
   }
   function renderPlanSelect() {
     const s = $('#planSelect');
-    s.innerHTML = state.plans.length
-      ? sortedPlans().map((p) => `<option value="${esc(p.id)}" ${p.id === state.activePlanId ? 'selected' : ''}>${p.date ? esc(p.date) + ' · ' : ''}${esc(p.name)} (${p.stops.length})</option>`).join('')
+    const loose = sortedPlans().filter((p) => !p.tripId);
+    s.innerHTML = loose.length
+      ? loose.map((p) => `<option value="${esc(p.id)}" ${p.id === state.activePlanId ? 'selected' : ''}>${p.date ? esc(p.date) + ' · ' : ''}${esc(p.name)} (${p.stops.length})</option>`).join('')
       : '<option value="">No days planned yet</option>';
   }
 
@@ -527,7 +544,7 @@
       el.innerHTML = `<div class="plan-card">
         <div class="plan-head">
           <input type="text" data-plan-field="name" data-key="pf-name" value="${esc(plan.name)}" maxlength="120" aria-label="Day name" />
-          <input type="date" data-plan-field="date" data-key="pf-date" value="${esc(plan.date || '')}" aria-label="Date" />
+          ${plan.tripId ? '' : `<input type="date" data-plan-field="date" data-key="pf-date" value="${esc(plan.date || '')}" aria-label="Date" />`}
         </div>
         <div class="plan-stats"><span>📍 ${stops.length} stops</span><span>📏 ~${totalKm(stops).toFixed(1)} km</span>
           ${plan.updatedBy ? `<span>✏️ ${esc(plan.updatedBy)}</span>` : ''}</div>
@@ -555,7 +572,7 @@
           <button class="btn small" data-act="custom-stop">📌 Custom stop</button>
           <button class="btn small" data-act="sort-time">🕘 Sort by time</button>
           <button class="btn small" data-act="share-plan">📤 Share as text</button>
-          <button class="btn small danger" data-act="del-plan">🗑 Delete day</button>
+          ${plan.tripId ? '' : '<button class="btn small danger" data-act="del-plan">🗑 Delete day</button>'}
         </div>
       </div>`;
     });
@@ -571,13 +588,14 @@
         <p>📍 ${t.stops.length} stops · ~${totalKm(t.stops).toFixed(0)} km</p>
         <div class="tpl-acts">
           <button class="btn small" data-act="preview-tpl" data-id="${t.id}">${state.preview?.id === t.id ? '✕ Hide preview' : '👀 Preview'}</button>
-          <button class="btn small primary" data-act="use-tpl" data-id="${t.id}">＋ Use as a day</button>
+          <button class="btn small primary" data-act="use-tpl" data-id="${t.id}">${tripDayMode() ? '＋ Add to this day' : '＋ Use as a day'}</button>
         </div>
       </div>`).join('');
   }
 
   function newPlan(fields = {}) {
-    const plan = { id: rid(), name: `Day ${state.plans.length + 1}`, date: '', type: '', stops: [], ...fields };
+    state.activeTripId = '__loose'; state.view = 'trip';
+    const plan = { id: rid(), name: `Day ${state.plans.filter((p) => !p.tripId).length + 1}`, date: '', type: '', stops: [], ...fields };
     state.plans.push(plan);
     setActivePlan(plan.id);
     queueSave(plan, 0);
@@ -604,6 +622,506 @@
       if (c) lines.push(`   https://maps.google.com/?q=${c.lat},${c.lng}`);
     });
     return lines.join('\n');
+  }
+
+  // ── trips: stays, flights, day-by-day timeline ──────────────
+  const DEST = Object.fromEntries(DESTINATIONS.map((d) => [d.id, d]));
+  const AIRPORTS = PLACES.filter((p) => p.cat === 'airport');
+  const STAY_COLORS = ['#0f766e', '#ea580c', '#7c3aed', '#2563eb', '#db2777', '#ca8a04', '#16a34a', '#0891b2'];
+  const HIGH_MONTHS = [12, 1, 2, 7];
+  const activeTrip = () => state.trips.find((t) => t.id === state.activeTripId) || null;
+  const looseMode = () => !activeTrip() && state.activeTripId === '__loose';
+  const tripDayMode = () => !!activeTrip() && state.view === 'day' && activePlan()?.tripId === state.activeTripId;
+  const addDays = (iso, n) => {
+    if (!iso) return '';
+    const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const dayDiff = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5);
+  const fmtDay = (iso, o = { weekday: 'short', day: 'numeric', month: 'short' }) =>
+    (iso ? new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { ...o, timeZone: 'UTC' }) : '');
+  const localToday = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+  const nf = (n) => Math.round(n).toLocaleString('en-US');
+  const rng = (a, b, unit) => `${nf(a)}–${nf(b)} ${unit}`;
+  const normIata = (c) => (c === 'DMK' ? 'BKK' : c);
+  const flightOf = (trip, kind) => trip.flights.find((f) => f.kind === kind) || null;
+  const stayColor = (trip, stay) => STAY_COLORS[Math.max(0, trip.stays.indexOf(stay)) % STAY_COLORS.length];
+  const stayPlaceName = (s) => s.name.split(' / ')[0];
+
+  function nearestAirport(pt, maxKm = 150) {
+    let best = null, bd = Infinity;
+    AIRPORTS.forEach((a) => { const d = km(pt, a); if (d < bd) { bd = d; best = a; } });
+    return bd <= maxKm ? best.iata : null;
+  }
+  const stayAirport = (s) => normIata((s.dest && DEST[s.dest]?.airport) || (s.lat != null ? nearestAirport(s) : null));
+
+  function domFare(a, b) {
+    a = normIata(a); b = normIata(b);
+    if (!a || !b || a === b) return null;
+    const f = DOMESTIC_FARES[`${a}-${b}`] || DOMESTIC_FARES[`${b}-${a}`];
+    if (f) return { lo: f[0], hi: f[1], rough: false };
+    const A = PLACE[a], B = PLACE[b];
+    if (!A || !B) return null;
+    const lo = Math.round((700 + km(A, B) * 1.1) / 100) * 100;
+    return { lo, hi: Math.round(lo * 2.6 / 100) * 100, rough: true };
+  }
+  function intlFare(home, to, date) {
+    const t = INTL_FARES.to[normIata(to)];
+    if (!t || !INTL_FARES.origins.includes(home)) return null;
+    const high = date && HIGH_MONTHS.includes(Number(date.slice(5, 7)));
+    const [lo, hi] = high ? t.high : t.low;
+    return { lo, hi, season: high ? 'high season' : 'low season' };
+  }
+
+  // Night-by-night: which stay you sleep at. Overnight flights land the next day.
+  function tripDays(trip) {
+    const n = trip.days;
+    const out = flightOf(trip, 'out');
+    const first = out?.arrDate && trip.start ? Math.min(n - 1, Math.max(0, dayDiff(trip.start, out.arrDate))) : 0;
+    const night = new Array(n).fill(null);
+    const ranges = {};
+    let c = first;
+    trip.stays.forEach((s) => {
+      const from = c;
+      for (let k = 0; k < s.nights && c < n - 1; k++) night[c++] = s;
+      ranges[s.id] = { from, to: c };
+    });
+    const days = [];
+    for (let i = 0; i < n; i++) {
+      const date = addDays(trip.start, i);
+      const prev = i > 0 ? night[i - 1] : null;
+      days.push({
+        i, date, stay: night[i], base: night[i] || prev,
+        from: prev && night[i] && prev !== night[i] ? prev : null,
+        flights: trip.flights.filter((f) => f.date === date),
+        arrivals: trip.flights.filter((f) => f.arrDate && f.arrDate !== f.date && f.arrDate === date),
+        inAir: i < first,
+      });
+    }
+    // Landing at / flying home from an airport that isn't where you stay → suggest a domestic hop
+    const home = flightOf(trip, 'home');
+    const firstStay = night[first], lastStay = night[n - 2] || null;
+    if (out?.to && firstStay && days[first]) {
+      const a = stayAirport(firstStay);
+      if (a && a !== normIata(out.to)) days[first].hop = { from: normIata(out.to), to: a };
+    }
+    if (home?.from && lastStay && n > 1) {
+      const a = stayAirport(lastStay);
+      if (a && a !== normIata(home.from)) days[n - 1].hop = { from: a, to: normIata(home.from) };
+    }
+    const totalNights = Math.max(0, n - 1 - first);
+    const assigned = trip.stays.reduce((t, s) => t + s.nights, 0);
+    return { days, ranges, totalNights, diff: totalNights - assigned, first };
+  }
+  const dayPlanFor = (trip, date) => state.plans.find((p) => p.tripId === trip.id && p.date === date) || null;
+  function ensureDayPlan(trip, idx) {
+    const { days } = tripDays(trip);
+    const d = days[idx]; if (!d) return null;
+    let p = dayPlanFor(trip, d.date);
+    if (!p) {
+      p = { id: rid(), name: `Day ${idx + 1}${d.base ? ' · ' + stayPlaceName(d.base) : ''}`, date: d.date, type: '', tripId: trip.id, stops: [] };
+      state.plans.push(p); queueSave(p, 0);
+    }
+    return p;
+  }
+  function transferInfo(a, b) {
+    const d = km(a, b);
+    const A = stayAirport(a), B = stayAirport(b);
+    const fly = A && B && A !== B && d > 250 ? { from: A, to: B, fare: domFare(A, B) } : null;
+    const ground = fly && d > 700 ? '' : (b.dest && DEST[b.dest]?.transfer) || `🚕 ~${nf(d * 1.3)} km by road`;
+    return { fly, ground, d };
+  }
+
+  // Links (no booking inside the app — these open a ready-made search)
+  const gFlights = (from, to, date, ret) => `https://www.google.com/travel/flights?hl=en&curr=SEK&q=${encodeURIComponent(`Flights from ${from} to ${to} on ${date}${ret ? ' returning ' + ret : ''}`)}`;
+  const yymmdd = (iso) => iso.slice(2).replaceAll('-', '');
+  const skyscanner = (from, to, date, ret, adults) => `https://www.skyscanner.se/transport/flights/${from.toLowerCase()}/${to.toLowerCase()}/${yymmdd(date)}/${ret ? yymmdd(ret) + '/' : ''}?adults=${adults}`;
+  function stayLinks(trip, s, range) {
+    const q = encodeURIComponent(stayPlaceName(s) + (s.dest ? '' : ' Thailand'));
+    const ci = addDays(trip.start, range.from), co = addDays(trip.start, range.to);
+    const n = trip.travellers;
+    return `<div class="link-row">
+      <span>🛏️</span>
+      <a target="_blank" rel="noopener" href="https://www.booking.com/searchresults.html?ss=${q}%2C%20Thailand&checkin=${ci}&checkout=${co}&group_adults=${n}&no_rooms=1">Booking</a>
+      <a target="_blank" rel="noopener" href="https://www.agoda.com/search?textToSearch=${q}&checkIn=${ci}&checkOut=${co}&adults=${n}&rooms=1">Agoda</a>
+      <span>🎟️</span>
+      <a target="_blank" rel="noopener" href="https://www.getyourguide.com/s/?q=${q}&date_from=${ci}&date_to=${co}">GetYourGuide</a>
+      <a target="_blank" rel="noopener" href="https://www.klook.com/search/result/?query=${q}">Klook</a>
+      <a target="_blank" rel="noopener" href="https://www.viator.com/searchResults/all?text=${q}">Viator</a>
+    </div>`;
+  }
+
+  function ideasFor(s, max = 14) {
+    if (s.lat == null) return { places: [], tpls: [] };
+    const places = PLACES.filter((p) => p.cat !== 'airport' && km(s, p) <= 25)
+      .sort((a, b) => km(s, a) - km(s, b)).slice(0, max);
+    const tpls = TEMPLATES.filter((t) => t.stops.some((x) => PLACE[x.place] && km(s, PLACE[x.place]) <= 40));
+    return { places, tpls };
+  }
+
+  function flightLine(trip, f) {
+    const when = `${fmtDay(f.date)}${f.dep ? ' ' + esc(f.dep) : ''}${f.arr ? ' → ' + esc(f.arr) + (f.arrDate && f.arrDate !== f.date ? '<sup>+' + dayDiff(f.date, f.arrDate) + '</sup>' : '') : ''}`;
+    let price = '';
+    if (f.kind === 'domestic') {
+      const p = domFare(f.from, f.to);
+      if (p) price = `<span class="fare">≈ ${rng(p.lo, p.hi, '฿')}${p.rough ? ' (rough)' : ''}</span>`;
+    }
+    const ret = f.kind === 'out' ? flightOf(trip, 'home')?.date : '';
+    const links = f.from && f.to && f.date && f.kind !== 'home' ? `
+      <a target="_blank" rel="noopener" href="${gFlights(f.from, f.to, f.date, ret)}">Google Flights</a>
+      <a target="_blank" rel="noopener" href="${skyscanner(f.from, f.to, f.date, ret, trip.travellers)}">Skyscanner</a>` : '';
+    return `<li class="flight ${f.kind}">
+      <div><b>${f.kind === 'home' ? '🏠' : f.kind === 'out' ? '🛫' : '✈️'} ${esc(f.from || '?')} → ${esc(f.to || '?')}</b>
+        ${f.flightNo ? `<span class="badge">${esc(f.flightNo)}</span>` : ''} ${price}
+        <div class="muted">${when}${f.kind === 'out' && ret ? ' · return ' + fmtDay(ret) : ''}</div>
+        ${links ? `<div class="link-row">${links}</div>` : ''}</div>
+      ${f.kind === 'domestic' ? `<button class="icon-btn" data-act="del-flight" data-id="${esc(f.id)}" aria-label="Remove flight">✕</button>` : ''}
+    </li>`;
+  }
+
+  function costHtml(trip) {
+    const out = flightOf(trip, 'out');
+    const intl = out ? intlFare(trip.home, out.to, out.date) : null;
+    let dLo = 0, dHi = 0; let nDom = 0;
+    trip.flights.filter((f) => f.kind === 'domestic').forEach((f) => { const p = domFare(f.from, f.to); if (p) { dLo += p.lo; dHi += p.hi; nDom++; } });
+    const n = trip.travellers;
+    const parts = [];
+    if (intl) parts.push(`<div>🌏 Return ${esc(trip.home)}–${esc(normIata(out.to))}, ${intl.season}: <b>${rng(intl.lo * n, intl.hi * n, 'SEK')}</b> <span class="muted">(${n} × ${rng(intl.lo, intl.hi, 'SEK')})</span></div>`);
+    else if (out) parts.push(`<div>🌏 No guide price from ${esc(trip.home || '?')} — use the search buttons above.</div>`);
+    if (nDom) parts.push(`<div>🇹🇭 ${nDom} domestic flight${nDom > 1 ? 's' : ''}: <b>${rng(dLo * n, dHi * n, '฿')}</b> <span class="muted">(${n} travellers)</span></div>`);
+    return `<div class="cost"><div class="cost-title">💰 Rough flight budget</div>${parts.join('')}
+      <div class="muted small-print">Guide prices only — real fares vary a lot with dates and airline.${nDom ? '' : ' Add domestic flights from the timeline to include them.'}</div></div>`;
+  }
+
+  function ideasListHtml(trip, s, days) {
+    const { places, tpls } = ideasFor(s);
+    if (!places.length && !tpls.length) return '<p class="muted small-print">No curated places near this stop yet — try the tour links above.</p>';
+    const dayOpts = days.map((d) => `<option value="${d.i}">Day ${d.i + 1} · ${fmtDay(d.date)}</option>`).join('');
+    return `<div class="ideas">
+      ${places.map((p) => `<div class="idea" style="--c:${CATEGORIES[p.cat].color}">
+        <span class="idea-name" data-act="select-place" data-id="${p.id}">${CATEGORIES[p.cat].icon} ${esc(p.name)}</span>
+        <select data-idea-place="${p.id}" aria-label="Add ${esc(p.name)} to a day"><option value="">＋ Day…</option>${dayOpts}</select>
+      </div>`).join('')}
+      ${tpls.map((t) => `<div class="idea tpl-idea">
+        <span class="idea-name" data-act="preview-tpl" data-id="${t.id}">📋 ${esc(t.name)}</span>
+        <select data-idea-tpl="${t.id}" aria-label="Use ${esc(t.name)} on a day"><option value="">Use on…</option>${dayOpts}</select>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  function renderTripBar() {
+    const sel = $('#tripSelect');
+    const loose = state.plans.filter((p) => !p.tripId);
+    const opts = state.trips.map((t) => `<option value="${esc(t.id)}" ${t.id === state.activeTripId ? 'selected' : ''}>🧳 ${esc(t.name)}${t.start ? ' · ' + fmtDay(t.start, { month: 'short', year: 'numeric' }) : ''}</option>`);
+    if (loose.length || looseMode()) opts.push(`<option value="__loose" ${looseMode() ? 'selected' : ''}>📅 Loose days (${loose.length})</option>`);
+    if (!opts.length) opts.push('<option value="">No trips yet</option>');
+    sel.innerHTML = opts.join('');
+  }
+
+  function renderTripView() {
+    const el = $('#tripView');
+    const trip = activeTrip();
+    const showTrip = trip && state.view !== 'day';
+    const welcome = !trip && !looseMode();
+    $('#dayArea').classList.toggle('hidden', showTrip || welcome);
+    $('#looseTop').classList.toggle('hidden', !looseMode());
+    el.classList.toggle('hidden', !showTrip && !welcome);
+    if (welcome) {
+      el.innerHTML = `<div class="plan-card empty trip-welcome">
+        <div class="big">🧳</div><b>Plan your whole trip</b>
+        <p>Enter dates and flights, add the places you’ll stay, and get a day-by-day timeline with rough flight prices and ideas for every stop.</p>
+        <button class="btn primary" data-act="new-trip">＋ Create a trip</button>
+      </div>`;
+      return;
+    }
+    if (!showTrip) { el.innerHTML = ''; return; }
+    const { days, ranges, totalNights, diff } = tripDays(trip);
+    const last = addDays(trip.start, trip.days - 1);
+    const flights = [flightOf(trip, 'out'), ...trip.flights.filter((f) => f.kind === 'domestic').sort((a, b) => (a.date + a.dep).localeCompare(b.date + b.dep)), flightOf(trip, 'home')].filter(Boolean);
+    const today = localToday();
+    preserve(el, () => {
+      el.innerHTML = `
+      <div class="card trip-sum">
+        <div class="trip-sum-head">
+          <div><h3>${esc(trip.name)}</h3>
+            <p class="muted">${fmtDay(trip.start)} – ${fmtDay(last, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · ${trip.days} days · 👥 ${trip.travellers}</p></div>
+          <button class="icon-btn" data-act="edit-trip" aria-label="Edit trip">✏️</button>
+        </div>
+        <ul class="flights">${flights.map((f) => flightLine(trip, f)).join('')}</ul>
+        ${costHtml(trip)}
+        <div class="plan-foot">
+          <button class="btn small" data-act="fit-trip">🗺️ Show trip</button>
+          <button class="btn small" data-act="share-trip">📤 Share as text</button>
+          <button class="btn small danger" data-act="del-trip">🗑 Delete trip</button>
+        </div>
+      </div>
+
+      <div class="card stays-card">
+        <h3>🧳 Where you’ll stay</h3>
+        <p class="muted">${totalNights} nights in Thailand${diff > 0 ? ` · <span class="warn">⚠️ ${diff} night${diff > 1 ? 's' : ''} not planned yet</span>` : diff < 0 ? ` · <span class="warn">⚠️ ${-diff} night${diff < -1 ? 's' : ''} too many</span>` : ' · ✅ all nights planned'}</p>
+        <ol class="stay-list">${trip.stays.map((s, k) => {
+          const r = ranges[s.id] || { from: 0, to: 0 };
+          const open = state.openIdeas.has(s.id);
+          const sd = days.filter((d) => d.base === s && !d.inAir);
+          return `<li class="stay" style="--c:${stayColor(trip, s)}">
+            <div class="stay-row">
+              <div class="stay-num">${k + 1}</div>
+              <div class="stay-main">
+                <div class="stay-name" data-act="goto-stay" data-id="${esc(s.id)}">${esc(s.name)}</div>
+                <div class="muted">${r.to > r.from ? `${fmtDay(addDays(trip.start, r.from))} → ${fmtDay(addDays(trip.start, r.to))}` : 'outside the trip dates'}</div>
+              </div>
+              <div class="nights">
+                <button class="icon-btn" data-act="stay-nights" data-id="${esc(s.id)}" data-d="-1" ${s.nights <= 0 ? 'disabled' : ''} aria-label="One night less">−</button>
+                <b>${s.nights}</b><span>night${s.nights === 1 ? '' : 's'}</span>
+                <button class="icon-btn" data-act="stay-nights" data-id="${esc(s.id)}" data-d="1" aria-label="One night more">＋</button>
+              </div>
+              <div class="ctrl">
+                <button class="icon-btn" data-act="stay-move" data-id="${esc(s.id)}" data-d="-1" ${k === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
+                <button class="icon-btn" data-act="stay-move" data-id="${esc(s.id)}" data-d="1" ${k === trip.stays.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
+                <button class="icon-btn" data-act="stay-del" data-id="${esc(s.id)}" aria-label="Remove stop">✕</button>
+              </div>
+            </div>
+            ${r.to > r.from ? stayLinks(trip, s, r) : ''}
+            <button class="ideas-toggle" data-act="toggle-ideas" data-id="${esc(s.id)}">💡 Things to do near ${esc(stayPlaceName(s))} ${open ? '▴' : '▾'}</button>
+            ${open ? ideasListHtml(trip, s, sd) : ''}
+          </li>`;
+        }).join('')}</ol>
+        <select data-stay-add aria-label="Add a stop">
+          <option value="">＋ Add a stop…</option>
+          ${DESTINATIONS.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}
+          <option value="__map">📍 Pick a spot on the map…</option>
+        </select>
+      </div>
+
+      <h3 class="section-title">🗓️ Day by day</h3>
+      <ol class="timeline">${days.map((d) => {
+        const plan = dayPlanFor(trip, d.date);
+        const stops = plan?.stops || [];
+        const c = d.base ? stayColor(trip, d.base) : '#94a3b8';
+        let move = '';
+        if (d.from && d.stay) {
+          const t = transferInfo(d.from, d.stay);
+          const added = t.fly && trip.flights.some((f) => f.kind === 'domestic' && f.date === d.date && normIata(f.from) === t.fly.from && normIata(f.to) === t.fly.to);
+          move = `<div class="tl-move">🔁 ${esc(stayPlaceName(d.from))} → ${esc(stayPlaceName(d.stay))} <span class="muted">· ~${nf(t.d)} km</span></div>
+            ${t.fly && !added ? `<div class="tl-hint">✈️ ${t.fly.from}→${t.fly.to}${t.fly.fare ? ` ≈ ${rng(t.fly.fare.lo, t.fly.fare.hi, '฿')} pp` : ''}
+              <button class="btn tiny" data-act="add-dom-flight" data-idx="${d.i}">＋ Add flight</button></div>` : ''}
+            ${t.ground && (!t.fly || !added) ? `<div class="tl-hint">${t.fly ? 'or ' : ''}${esc(t.ground)}</div>` : ''}`;
+        }
+        if (d.hop) {
+          const added = trip.flights.some((f) => f.kind === 'domestic' && f.date === d.date && normIata(f.from) === d.hop.from && normIata(f.to) === d.hop.to);
+          const fare = domFare(d.hop.from, d.hop.to);
+          if (!added) move += `<div class="tl-hint">🔗 Connection ${d.hop.from}→${d.hop.to}${fare ? ` ≈ ${rng(fare.lo, fare.hi, '฿')} pp` : ''}
+            <button class="btn tiny" data-act="add-dom-flight" data-idx="${d.i}" data-hop="1">＋ Add flight</button></div>`;
+        }
+        const fl = d.flights.map((f) => `<div class="tl-flight">${f.kind === 'home' ? '🏠' : '🛫'} ${esc(f.from)}→${esc(f.to)}${f.dep ? ' ' + esc(f.dep) : ''}${f.flightNo ? ' · ' + esc(f.flightNo) : ''}</div>`).join('')
+          + d.arrivals.map((f) => `<div class="tl-flight">🛬 Land ${esc(f.to)}${f.arr ? ' ' + esc(f.arr) : ''}</div>`).join('');
+        const title = d.inAir ? '✈️ On the way to Thailand' : d.base ? esc(stayPlaceName(d.base)) : '<span class="warn">No stop planned</span>';
+        return `<li class="tl-day ${d.from ? 'travel' : ''} ${d.date === today ? 'today' : ''}" style="--c:${c}" data-act="open-day" data-idx="${d.i}" tabindex="0">
+          <div class="tl-date"><span>${fmtDay(d.date, { weekday: 'short' })}</span><b>${fmtDay(d.date, { day: 'numeric' })}</b><span>${fmtDay(d.date, { month: 'short' })}</span></div>
+          <div class="tl-body">
+            <div class="tl-title"><span class="tl-n">Day ${d.i + 1}</span> ${title}</div>
+            ${fl}${move}
+            <div class="tl-acts">${stops.length
+              ? stops.slice(0, 4).map((s) => `${s.time ? `<b>${esc(s.time)}</b> ` : ''}${esc(stopCoord(s)?.name || 'Stop')}`).join(' · ') + (stops.length > 4 ? ` · +${stops.length - 4} more` : '')
+              : `<span class="muted">${d.inAir ? '' : 'Tap to plan this day'}</span>`}</div>
+          </div>
+        </li>`;
+      }).join('')}</ol>`;
+    });
+  }
+
+  function renderDayHead() {
+    const el = $('#dayHead');
+    const trip = activeTrip(), plan = activePlan();
+    if (!tripDayMode()) { el.innerHTML = ''; $('#dayIdeas').innerHTML = ''; return; }
+    const { days } = tripDays(trip);
+    const idx = dayDiff(trip.start, plan.date);
+    const d = days[idx];
+    el.innerHTML = `<div class="day-head">
+      <button class="btn small" data-act="back-timeline">← Timeline</button>
+      <div class="day-nav">
+        <button class="icon-btn" data-act="day-step" data-d="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="Previous day">‹</button>
+        <b>Day ${idx + 1} · ${fmtDay(plan.date)}</b>
+        <button class="icon-btn" data-act="day-step" data-d="1" ${idx >= trip.days - 1 ? 'disabled' : ''} aria-label="Next day">›</button>
+      </div>
+    </div>
+    ${d?.from && d.stay ? `<div class="day-note">🔁 Travel day: ${esc(stayPlaceName(d.from))} → ${esc(stayPlaceName(d.stay))}</div>` : ''}
+    ${d?.flights.length ? `<div class="day-note">${d.flights.map((f) => `✈️ ${esc(f.from)}→${esc(f.to)}${f.dep ? ' ' + esc(f.dep) : ''}`).join(' · ')}</div>` : ''}`;
+    // Ideas for the place you’re staying that day
+    const s = d?.base;
+    if (!s) { $('#dayIdeas').innerHTML = ''; return; }
+    const { places, tpls } = ideasFor(s, 10);
+    const inDay = new Set(plan.stops.map((x) => x.place));
+    const r = tripDays(trip).ranges[s.id];
+    $('#dayIdeas').innerHTML = `<div class="card day-ideas">
+      <h3>💡 Ideas near ${esc(stayPlaceName(s))}</h3>
+      ${r ? stayLinks(trip, s, r) : ''}
+      <div class="ideas">
+        ${places.map((p) => `<div class="idea" style="--c:${CATEGORIES[p.cat].color}">
+          <span class="idea-name" data-act="select-place" data-id="${p.id}">${CATEGORIES[p.cat].icon} ${esc(p.name)}</span>
+          ${inDay.has(p.id) ? '<span class="muted">✓ added</span>' : `<button class="btn tiny" data-act="add-idea-here" data-id="${p.id}">＋ Add</button>`}
+        </div>`).join('')}
+        ${tpls.map((t) => `<div class="idea tpl-idea">
+          <span class="idea-name" data-act="preview-tpl" data-id="${t.id}">📋 ${esc(t.name)}</span>
+          <button class="btn tiny" data-act="use-tpl" data-id="${t.id}">＋ Use</button>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  function drawTrip(trip) {
+    const pts = trip.stays.filter((s) => s.lat != null);
+    if (pts.length > 1) {
+      L.polyline(pts.map((s) => [s.lat, s.lng]), { color: '#fff', weight: 7, opacity: 0.8 }).addTo(planLayer);
+      L.polyline(pts.map((s) => [s.lat, s.lng]), { color: '#0f766e', weight: 3.5, dashArray: '6 8', lineCap: 'round' }).addTo(planLayer);
+    }
+    pts.forEach((s) => {
+      const k = trip.stays.indexOf(s);
+      L.marker([s.lat, s.lng], {
+        zIndexOffset: 1000,
+        icon: L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+          html: `<div class="stay-pin" style="--c:${stayColor(trip, s)}">${k + 1}</div>` }),
+      }).bindTooltip(`${esc(s.name)} · ${s.nights} night${s.nights === 1 ? '' : 's'}`, { direction: 'top', offset: [0, -14] })
+        .on('click', () => { state.openIdeas.add(s.id); switchTab('plan'); renderTripView(); })
+        .addTo(planLayer);
+    });
+  }
+  function fitTrip(trip) {
+    const pts = trip.stays.filter((s) => s.lat != null);
+    if (!pts.length) return;
+    if (pts.length === 1) map.flyTo([pts[0].lat, pts[0].lng], 11);
+    else map.flyToBounds(L.latLngBounds(pts.map((s) => [s.lat, s.lng])), { padding: [50, 50], maxZoom: 11 });
+  }
+
+  function tripAsText(trip) {
+    const { days } = tripDays(trip);
+    const lines = [`🇹🇭 ${trip.name} — ${fmtDay(trip.start)} → ${fmtDay(addDays(trip.start, trip.days - 1))} (${trip.days} days)`];
+    trip.stays.forEach((s) => lines.push(`🧳 ${s.name}: ${s.nights} night${s.nights === 1 ? '' : 's'}`));
+    lines.push('');
+    days.forEach((d) => {
+      const plan = dayPlanFor(trip, d.date);
+      const bits = [
+        ...d.flights.map((f) => `✈️ ${f.from}→${f.to}${f.dep ? ' ' + f.dep : ''}${f.flightNo ? ' ' + f.flightNo : ''}`),
+        d.from && d.stay ? `🔁 ${stayPlaceName(d.from)} → ${stayPlaceName(d.stay)}` : '',
+        ...(plan?.stops || []).map((s) => `${s.time ? s.time + ' ' : ''}${stopCoord(s)?.name || 'Stop'}`),
+      ].filter(Boolean);
+      lines.push(`${fmtDay(d.date)} · Day ${d.i + 1}${d.base ? ' · ' + stayPlaceName(d.base) : ''}${bits.length ? '\n   ' + bits.join('\n   ') : ''}`);
+    });
+    return lines.join('\n');
+  }
+
+  // ── trip actions ──
+  function saveTrip(trip, delay = 0) { queueSave(trip, delay, 'trips'); onPlansChanged(); }
+  function setActiveTrip(id) {
+    state.activeTripId = id; LS.set('activeTrip', id);
+    state.view = 'trip'; state.preview = null;
+    if (id === '__loose') state.activePlanId = state.plans.find((p) => !p.tripId)?.id || null;
+    onPlansChanged();
+    const t = activeTrip(); if (t) fitTrip(t);
+  }
+  function openDay(trip, idx) {
+    const p = ensureDayPlan(trip, idx); if (!p) return;
+    state.activePlanId = p.id; LS.set('activePlan', p.id);
+    state.view = 'day'; state.preview = null;
+    onPlansChanged();
+    $('#tab-plan').scrollTop = 0;
+    if (p.stops.length) fitStops(p.stops);
+    else if (tripDays(trip).days[idx]?.base) { const b = tripDays(trip).days[idx].base; if (b.lat != null) map.flyTo([b.lat, b.lng], 12); }
+  }
+  function addStay(trip, st) {
+    const { diff } = tripDays(trip);
+    let nights = 2;
+    if (diff > 0) nights = Math.min(diff, 3);
+    else {
+      const big = [...trip.stays].sort((a, b) => b.nights - a.nights)[0];
+      if (big && big.nights > 1) { const take = Math.min(2, big.nights - 1); big.nights -= take; nights = take; }
+    }
+    trip.stays.push({ id: rid(), nights, ...st });
+    saveTrip(trip);
+    toast(`${st.name} added — ${nights} night${nights === 1 ? '' : 's'}`);
+  }
+  async function deleteTrip(trip) {
+    for (const p of state.plans.filter((x) => x.tripId === trip.id)) await deletePlan(p.id);
+    clearTimeout(saveTimers[trip.id]); dirty.delete(trip.id);
+    state.trips = state.trips.filter((t) => t.id !== trip.id);
+    if (!state.online) persistLocal();
+    else try { await req('DELETE', '/trips/' + trip.id); } catch (e) { toast('Could not delete: ' + e.message); }
+    setActiveTrip(state.trips[0]?.id || (state.plans.some((p) => !p.tripId) ? '__loose' : null));
+  }
+
+  // ── trip dialog ──
+  let editingTripId = null;
+  function openTripDialog(trip = null) {
+    editingTripId = trip?.id || null;
+    const f = $('#tripForm');
+    const intl = AIRPORTS.filter((a) => a.intl);
+    const opt = (sel) => intl.map((a) => `<option value="${a.iata}" ${a.iata === sel ? 'selected' : ''}>${a.iata} · ${esc(a.name.replace(/\s*\([A-Z]{3}\)$/, ''))}</option>`).join('');
+    const out = trip && flightOf(trip, 'out'), home = trip && flightOf(trip, 'home');
+    $('#tripDialogTitle').textContent = trip ? 'Edit trip' : 'New trip';
+    $('#tripSubmit').textContent = trip ? 'Save' : 'Create trip';
+    f.name.value = trip?.name || '';
+    f.start.value = trip?.start || '';
+    f.days.value = trip?.days || 14;
+    f.travellers.value = trip?.travellers || 2;
+    f.home.value = trip?.home || 'ARN';
+    f.outTo.innerHTML = opt(out?.to || 'BKK');
+    f.outNo.value = out?.flightNo || '';
+    f.outDep.value = out?.dep || '';
+    f.outArr.value = out?.arr || '';
+    f.outArrNext.value = out ? String(Math.max(0, Math.min(1, dayDiff(out.date, out.arrDate || out.date)))) : '1';
+    f.homeFrom.innerHTML = opt(home?.from || out?.to || 'BKK');
+    f.homeNo.value = home?.flightNo || '';
+    f.homeDep.value = home?.dep || '';
+    $('#tripDialog').showModal();
+    setTimeout(() => f.name.focus(), 30);
+  }
+  $('#tripForm').addEventListener('submit', (e) => {
+    const f = e.target;
+    const old = editingTripId && state.trips.find((t) => t.id === editingTripId);
+    const trip = old || { id: rid(), stays: [], flights: [] };
+    const prevStart = trip.start;
+    trip.name = f.name.value.trim().slice(0, 120) || 'Our trip';
+    trip.start = f.start.value;
+    trip.days = Math.max(1, Math.min(120, Number(f.days.value) || 14));
+    trip.travellers = Math.max(1, Math.min(20, Number(f.travellers.value) || 2));
+    trip.home = f.home.value.trim().toUpperCase().slice(0, 3);
+    if (old && prevStart && prevStart !== trip.start) {
+      const delta = dayDiff(prevStart, trip.start);
+      state.plans.filter((p) => p.tripId === trip.id && p.date).forEach((p) => { p.date = addDays(p.date, delta); queueSave(p, 0); });
+      trip.flights.filter((x) => x.kind === 'domestic').forEach((x) => { x.date = addDays(x.date, delta); });
+    }
+    let out = flightOf(trip, 'out'); if (!out) { out = { id: rid(), kind: 'out' }; trip.flights.push(out); }
+    Object.assign(out, { from: trip.home, to: f.outTo.value, date: trip.start, arrDate: addDays(trip.start, Number(f.outArrNext.value)),
+      dep: f.outDep.value, arr: f.outArr.value, flightNo: f.outNo.value.trim().toUpperCase() });
+    let home = flightOf(trip, 'home'); if (!home) { home = { id: rid(), kind: 'home' }; trip.flights.push(home); }
+    Object.assign(home, { from: f.homeFrom.value, to: trip.home, date: addDays(trip.start, trip.days - 1),
+      dep: f.homeDep.value, flightNo: f.homeNo.value.trim().toUpperCase(), arr: '', arrDate: '' });
+    if (!old) {
+      state.trips.push(trip);
+      const d = DESTINATIONS.find((x) => x.airport === normIata(out.to)) || DEST.bangkok;
+      trip.stays.push({ id: rid(), dest: d.id, name: d.name, lat: d.lat, lng: d.lng, nights: 1 });
+      trip.stays[0].nights = Math.max(1, tripDays(trip).totalNights);
+    }
+    queueSave(trip, 0, 'trips');
+    setActiveTrip(trip.id);
+    switchTab('plan');
+    toast(old ? 'Trip updated ✓' : `“${trip.name}” created — add your stops 🧳`);
+  });
+
+  // "Add to day" choices: every day of the active trip (preselect the day you’re near), then loose days
+  function addToDayOptions(place) {
+    let html = '';
+    const tr = activeTrip();
+    if (tr) {
+      const { days } = tripDays(tr);
+      const cur = tripDayMode() ? dayDiff(tr.start, activePlan().date) : -1;
+      let pick = cur;
+      if (pick < 0) { const near = days.find((d) => d.base && d.base.lat != null && !d.inAir && km(d.base, place) < 40); pick = near ? near.i : -1; }
+      html += `<optgroup label="${esc(tr.name)}">${days.map((d) => `<option value="t|${esc(tr.id)}|${d.i}" ${d.i === pick ? 'selected' : ''}>Day ${d.i + 1} · ${fmtDay(d.date)}${d.base ? ' · ' + esc(stayPlaceName(d.base)) : ''}</option>`).join('')}</optgroup>`;
+    }
+    const loose = state.plans.filter((p) => !p.tripId);
+    if (loose.length) html += `<optgroup label="Loose days">${loose.map((pl) => `<option value="${esc(pl.id)}" ${!tr && pl.id === state.activePlanId ? 'selected' : ''}>${esc(pl.name)}</option>`).join('')}</optgroup>`;
+    return html;
   }
 
   // ── panel: family ───────────────────────────────────────────
@@ -722,7 +1240,7 @@
     $('#meetBtn').classList.toggle('active', mode === 'meet');
     const b = $('#modeBanner');
     if (!mode) { b.classList.add('hidden'); return; }
-    b.innerHTML = (mode === 'note' ? '📍 Tap anywhere on the map to drop a family note' : mode === 'meet' ? '🚩 Tap the map where everyone should meet' : `📌 Tap the map to add a custom stop to “${esc(activePlan()?.name || 'a new day')}”`) +
+    b.innerHTML = (mode === 'note' ? '📍 Tap anywhere on the map to drop a family note' : mode === 'meet' ? '🚩 Tap the map where everyone should meet' : mode === 'stay' ? '🧳 Tap the map where you’ll stay' : `📌 Tap the map to add a custom stop to “${esc(activePlan()?.name || 'a new day')}”`) +
       ' <button data-act="cancel-mode">Cancel</button>';
     b.classList.remove('hidden');
   }
@@ -748,6 +1266,15 @@
       setTimeout(() => $('[data-key="new-note"]')?.focus(), 50);
     } else if (state.mode === 'meet') {
       openMeetupComposer(e.latlng);
+    } else if (state.mode === 'stay') {
+      L.popup({ minWidth: 230 }).setLatLng(e.latlng).setContent(
+        `<form class="popup compose" data-staymap data-lat="${lat.toFixed(6)}" data-lng="${lng.toFixed(6)}">
+          <h4>🧳 New stop</h4>
+          <input name="name" required maxlength="80" placeholder="Name, e.g. Koh Kood" />
+          <div class="compose-row"><span></span><button class="btn primary small" type="submit">Add stop</button></div>
+        </form>`,
+      ).openOn(map);
+      setTimeout(() => $('[data-staymap] input')?.focus(), 50);
     } else if (state.mode === 'stop') {
       L.popup({ minWidth: 230 }).setLatLng(e.latlng).setContent(
         `<form class="popup compose" data-customstop data-lat="${lat.toFixed(6)}" data-lng="${lng.toFixed(6)}">
@@ -782,9 +1309,54 @@
       }
       case 'add-to-plan': {
         const target = $('[data-plan-target]')?.value || '__new';
-        addStop(target, { place: id });
+        if (target.startsWith('t|')) {
+          const [, tid, i] = target.split('|');
+          const tr = state.trips.find((x) => x.id === tid);
+          const dp = tr && ensureDayPlan(tr, Number(i));
+          if (dp) { dp.stops.push({ id: rid(), time: '', note: '', place: id }); queueSave(dp, 0); onPlansChanged(); toast(`Added to ${dp.name} ✓`); }
+        } else addStop(target, { place: id });
         break;
       }
+      case 'new-trip': openTripDialog(); break;
+      case 'edit-trip': if (activeTrip()) openTripDialog(activeTrip()); break;
+      case 'close-trip-dialog': $('#tripDialog').close(); break;
+      case 'del-trip': if (activeTrip() && armed(t)) { const n = activeTrip().name; await deleteTrip(activeTrip()); toast(`“${n}” deleted`); } break;
+      case 'share-trip': if (activeTrip()) share(tripAsText(activeTrip())); break;
+      case 'fit-trip': if (activeTrip()) { fitTrip(activeTrip()); if (window.innerWidth <= 760) setSheet('collapsed'); } break;
+      case 'open-day': if (activeTrip()) openDay(activeTrip(), idx); break;
+      case 'back-timeline': state.view = 'trip'; onPlansChanged(); if (activeTrip()) fitTrip(activeTrip()); break;
+      case 'day-step': {
+        const tr = activeTrip(); if (!tr || !plan) break;
+        const j = dayDiff(tr.start, plan.date) + Number(t.dataset.d);
+        if (j >= 0 && j < tr.days) openDay(tr, j);
+        break;
+      }
+      case 'stay-nights': case 'stay-move': case 'stay-del': case 'goto-stay': case 'toggle-ideas': {
+        const tr = activeTrip(); const s = tr?.stays.find((x) => x.id === id); if (!s) break;
+        const k = tr.stays.indexOf(s), dd = Number(t.dataset.d);
+        if (act === 'stay-nights') { s.nights = Math.max(0, Math.min(90, s.nights + dd)); saveTrip(tr, 400); }
+        else if (act === 'stay-move') { const j = k + dd; if (j >= 0 && j < tr.stays.length) { [tr.stays[k], tr.stays[j]] = [tr.stays[j], tr.stays[k]]; saveTrip(tr); } }
+        else if (act === 'stay-del') { if (armed(t)) { tr.stays.splice(k, 1); state.openIdeas.delete(id); saveTrip(tr); } }
+        else if (act === 'goto-stay') { if (s.lat != null) map.flyTo([s.lat, s.lng], 12); if (window.innerWidth <= 760) setSheet('collapsed'); }
+        else { state.openIdeas.has(id) ? state.openIdeas.delete(id) : state.openIdeas.add(id); renderTripView(); }
+        break;
+      }
+      case 'add-dom-flight': {
+        const tr = activeTrip(); if (!tr) break;
+        const d = tripDays(tr).days[idx]; if (!d) break;
+        const leg = t.dataset.hop ? d.hop : d.from && d.stay ? transferInfo(d.from, d.stay).fly : null;
+        if (!leg) break;
+        tr.flights.push({ id: rid(), kind: 'domestic', from: leg.from, to: leg.to, date: d.date, dep: '', arr: '', flightNo: '', note: '' });
+        saveTrip(tr); toast(`✈️ ${leg.from}→${leg.to} added to the budget`);
+        break;
+      }
+      case 'del-flight': {
+        const tr = activeTrip(); if (!tr) break;
+        tr.flights = tr.flights.filter((f) => f.id !== id); saveTrip(tr); break;
+      }
+      case 'add-idea-here':
+        if (plan) { plan.stops.push({ id: rid(), time: '', note: '', place: id }); queueSave(plan, 0); onPlansChanged(); toast(`${PLACE[id]?.name} added ✓`); }
+        break;
       case 'reply':
         if (!ensureMe()) break;
         state.openReplies.has(id) ? state.openReplies.delete(id) : state.openReplies.add(id);
@@ -809,6 +1381,11 @@
       }
       case 'use-tpl': {
         const tpl = TEMPLATES.find((x) => x.id === id);
+        if (tripDayMode() && plan) {
+          plan.stops.push(...tpl.stops.map((s) => ({ id: rid(), place: s.place, time: s.time, note: s.note })));
+          state.preview = null; queueSave(plan, 0); onPlansChanged(); fitStops(plan.stops);
+          toast(`“${tpl.name}” added to ${plan.name} ✓`); break;
+        }
         const p = newPlan({ name: tpl.name, type: tpl.type, stops: tpl.stops.map((s) => ({ id: rid(), place: s.place, time: s.time, note: s.note })) });
         fitStops(p.stops); toast(`“${tpl.name}” added to your days ✓`);
         $('#tab-plan').scrollTop = 0;
@@ -874,6 +1451,12 @@
     const f = e.target;
     if (f.matches('[data-compose]')) { e.preventDefault(); onCompose(f); }
     else if (f.matches('[data-meetup-form]')) { e.preventDefault(); createMeetup(f); }
+    else if (f.matches('[data-staymap]')) {
+      e.preventDefault();
+      const tr = activeTrip();
+      if (tr) addStay(tr, { dest: null, name: f.name.value.trim().slice(0, 80) || 'Stop', lat: Number(f.dataset.lat), lng: Number(f.dataset.lng) });
+      map.closePopup(); setMode(null); switchTab('plan'); if (window.innerWidth <= 760) setSheet('');
+    }
     else if (f.matches('[data-customstop]')) {
       e.preventDefault();
       addStop(state.activePlanId || '__new', {
@@ -887,6 +1470,7 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && e.target.matches('.compose textarea')) { e.preventDefault(); e.target.form.requestSubmit(); }
     if (e.key === 'Escape' && state.mode) { setMode(null); map.closePopup(); }
+    if (e.key === 'Enter' && e.target.matches('.tl-day')) e.target.click();
   });
 
   // Plan field edits (debounced save, no re-render while typing)
@@ -901,6 +1485,26 @@
     if (t.dataset.stopField === 'time') renderRoute();
   });
   $('#planSelect').addEventListener('change', (e) => { if (e.target.value) { setActivePlan(e.target.value); fitStops(activePlan()?.stops || []); } });
+  $('#tripSelect').addEventListener('change', (e) => { if (e.target.value) setActiveTrip(e.target.value); });
+  $('#newTripBtn').addEventListener('click', () => openTripDialog());
+  $('#tab-plan').addEventListener('change', (e) => {
+    const t = e.target, tr = activeTrip();
+    if (!tr) return;
+    if (t.matches('[data-stay-add]')) {
+      const v = t.value; t.value = '';
+      if (v === '__map') { setMode('stay'); if (window.innerWidth <= 760) setSheet('collapsed'); return; }
+      const d = DEST[v]; if (d) addStay(tr, { dest: d.id, name: d.name, lat: d.lat, lng: d.lng });
+    } else if (t.matches('[data-idea-place]') && t.value !== '') {
+      const dp = ensureDayPlan(tr, Number(t.value));
+      dp.stops.push({ id: rid(), time: '', note: '', place: t.dataset.ideaPlace });
+      queueSave(dp, 0); onPlansChanged(); toast(`${PLACE[t.dataset.ideaPlace]?.name} → ${dp.name} ✓`);
+    } else if (t.matches('[data-idea-tpl]') && t.value !== '') {
+      const tpl = TEMPLATES.find((x) => x.id === t.dataset.ideaTpl);
+      const dp = ensureDayPlan(tr, Number(t.value));
+      dp.stops.push(...tpl.stops.map((s) => ({ id: rid(), place: s.place, time: s.time, note: s.note })));
+      queueSave(dp, 0); onPlansChanged(); toast(`“${tpl.name}” → ${dp.name} ✓`);
+    }
+  });
   $('#newPlanBtn').addEventListener('click', () => { newPlan(); toast('New day created — add places to it'); });
 
   let searchT;
@@ -1240,7 +1844,11 @@
   // ── render orchestration ────────────────────────────────────
   function onFilterChanged() { renderChips(); renderList(); renderMarkers(); }
   function onNotesChanged() { refreshAllIcons(); renderNotes(); renderList(); renderDetail(); renderFamily(); }
-  function onPlansChanged() { renderPlanSelect(); renderPlanEditor(); renderRoute(); renderTemplates(); renderDetail(); renderFamily(); }
+  function onPlansChanged() {
+    if (state.view === 'day' && !tripDayMode()) state.view = 'trip';
+    renderTripBar(); renderTripView(); renderDayHead();
+    renderPlanSelect(); renderPlanEditor(); renderRoute(); renderTemplates(); renderDetail(); renderFamily();
+  }
   function renderAll() {
     renderBadge(); onFilterChanged(); onNotesChanged(); onPlansChanged(); setConnBanner();
     renderMembers(); renderMeetups(); renderLive();

@@ -38,6 +38,7 @@ async function load(code) {
   try { state = JSON.parse(await fsp.readFile(fileFor(code), 'utf8')); }
   catch { state = { code, createdAt: Date.now(), notes: [], plans: [] }; }
   state.meetups ||= [];
+  state.trips ||= [];
   state.locations = {}; // live positions are kept in memory only (never written to disk)
   cache.set(code, state);
   return state;
@@ -119,7 +120,39 @@ function sanitizePlan(id, b) {
     name: clip(b.name, 120) || 'Untitled day',
     date: clip(b.date, 10),
     type: clip(b.type, 20),
+    tripId: b.tripId ? clip(b.tripId, 60) : null,
     stops,
+    updatedBy: clip(b.updatedBy, 40),
+    rev: clip(b.rev, 40),
+    updatedAt: Date.now(),
+  };
+}
+
+const IATA = (v) => (/^[A-Z]{3}$/.test(String(v || '').toUpperCase()) ? String(v).toUpperCase() : '');
+const int = (v, lo, hi, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+function sanitizeTrip(id, b) {
+  const flights = Array.isArray(b.flights) ? b.flights.slice(0, 20).map((f) => ({
+    id: clip(f.id, 60) || crypto.randomUUID(),
+    kind: ['out', 'home', 'domestic'].includes(f.kind) ? f.kind : 'domestic',
+    from: IATA(f.from), to: IATA(f.to),
+    date: clip(f.date, 10), arrDate: clip(f.arrDate, 10), dep: clip(f.dep, 5), arr: clip(f.arr, 5),
+    flightNo: clip(f.flightNo, 12), note: clip(f.note, 200),
+  })) : [];
+  const stays = Array.isArray(b.stays) ? b.stays.slice(0, 30).map((x) => ({
+    id: clip(x.id, 60) || crypto.randomUUID(),
+    dest: x.dest ? clip(x.dest, 40) : null,
+    name: clip(x.name, 80) || 'Stop',
+    lat: num(x.lat), lng: num(x.lng),
+    nights: int(x.nights, 0, 90, 1),
+  })) : [];
+  return {
+    id,
+    name: clip(b.name, 120) || 'Untitled trip',
+    start: clip(b.start, 10),
+    days: int(b.days, 1, 120, 14),
+    travellers: int(b.travellers, 1, 20, 2),
+    home: IATA(b.home),
+    flights, stays,
     updatedBy: clip(b.updatedBy, 40),
     rev: clip(b.rev, 40),
     updatedAt: Date.now(),
@@ -136,7 +169,7 @@ async function api(req, res, parts) {
   if (req.method === 'GET' && !resource) {
     const s = await load(code);
     pruneLocations(s);
-    return send(res, 200, { code, notes: s.notes, plans: s.plans, meetups: s.meetups, locations: Object.values(s.locations) });
+    return send(res, 200, { code, notes: s.notes, plans: s.plans, trips: s.trips, meetups: s.meetups, locations: Object.values(s.locations) });
   }
 
   if (req.method === 'GET' && resource === 'events') {
@@ -183,6 +216,23 @@ async function api(req, res, parts) {
     if (req.method === 'DELETE') {
       await mutate(code, (s) => { s.plans = s.plans.filter((p) => p.id !== id); });
       broadcast(code, { type: 'plan:delete', id });
+      return send(res, 200, { ok: true });
+    }
+  }
+
+  if (resource === 'trips' && id && /^[\w-]{1,60}$/.test(id)) {
+    if (req.method === 'PUT') {
+      const trip = sanitizeTrip(id, await readBody(req));
+      await mutate(code, (s) => {
+        const i = s.trips.findIndex((t) => t.id === id);
+        if (i >= 0) s.trips[i] = trip; else s.trips.push(trip);
+      });
+      broadcast(code, { type: 'trip:put', trip });
+      return send(res, 200, trip);
+    }
+    if (req.method === 'DELETE') {
+      await mutate(code, (s) => { s.trips = s.trips.filter((t) => t.id !== id); });
+      broadcast(code, { type: 'trip:delete', id });
       return send(res, 200, { ok: true });
     }
   }

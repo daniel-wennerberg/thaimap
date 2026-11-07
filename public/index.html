@@ -41,14 +41,23 @@
       </section>
 
       <section id="tab-plan" class="tab-body hidden">
-        <div class="plan-top">
-          <select id="planSelect" aria-label="Choose day"></select>
-          <button id="newPlanBtn" class="btn">＋ New day</button>
+        <div class="trip-bar">
+          <select id="tripSelect" aria-label="Choose trip"></select>
+          <button id="newTripBtn" class="btn primary">＋ New trip</button>
         </div>
-        <div id="planEditor"></div>
-        <h3 class="section-title">Ready-made days</h3>
-        <div id="templateFilters" class="chips small"></div>
-        <div id="templates" class="templates"></div>
+        <div id="tripView"></div>
+        <div id="dayArea">
+          <div id="dayHead"></div>
+          <div class="plan-top" id="looseTop">
+            <select id="planSelect" aria-label="Choose day"></select>
+            <button id="newPlanBtn" class="btn">＋ New day</button>
+          </div>
+          <div id="planEditor"></div>
+          <div id="dayIdeas"></div>
+          <h3 class="section-title">Ready-made days</h3>
+          <div id="templateFilters" class="chips small"></div>
+          <div id="templates" class="templates"></div>
+        </div>
       </section>
 
       <section id="tab-family" class="tab-body hidden">
@@ -83,6 +92,44 @@
       <div class="dialog-actions">
         <button type="button" id="genCode" class="btn ghost">🎲 New code</button>
         <button type="submit" class="btn primary">Let’s go</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="tripDialog" class="dialog wide">
+    <form id="tripForm" method="dialog">
+      <h2 id="tripDialogTitle">New trip</h2>
+      <label>Trip name <input name="name" required maxlength="120" placeholder="e.g. Thailand 2027" /></label>
+      <div class="grid3">
+        <label>First day <input name="start" type="date" required /></label>
+        <label>Days <input name="days" type="number" min="1" max="120" value="14" required /></label>
+        <label>Travellers <input name="travellers" type="number" min="1" max="20" value="2" required /></label>
+      </div>
+      <fieldset>
+        <legend>✈️ Flight out</legend>
+        <div class="grid3">
+          <label>From <input name="home" maxlength="3" placeholder="ARN" pattern="[A-Za-z]{3}" required /></label>
+          <label>To <select name="outTo"></select></label>
+          <label>Flight no. <input name="outNo" maxlength="12" placeholder="TG961" /></label>
+        </div>
+        <div class="grid3">
+          <label>Departs <input name="outDep" type="time" /></label>
+          <label>Lands <input name="outArr" type="time" /></label>
+          <label>Lands on <select name="outArrNext"><option value="0">Same day</option><option value="1" selected>+1 day</option></select></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>🏠 Flight home <span class="muted">(on the last day)</span></legend>
+        <div class="grid3">
+          <label>From <select name="homeFrom"></select></label>
+          <label>Flight no. <input name="homeNo" maxlength="12" placeholder="TG960" /></label>
+          <label>Departs <input name="homeDep" type="time" /></label>
+        </div>
+      </fieldset>
+      <p class="muted small-print">Prices in the app are rough guide prices. Use the Google Flights / Skyscanner buttons for real fares.</p>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-act="close-trip-dialog">Cancel</button>
+        <button type="submit" class="btn primary" id="tripSubmit">Create trip</button>
       </div>
     </form>
   </dialog>

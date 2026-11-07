@@ -377,3 +377,51 @@ window.TEMPLATES = [
       { place: 'river-kwai', time: '15:30', note: 'Walk the bridge' },
     ] },
 ];
+
+// ───────────── TRIP PLANNING ─────────────
+// Places to stay a few nights. airport = the practical airport to fly in/out (null = go overland).
+// transfer = how you usually get there overland/by boat. All prices are rough guides — check before you go.
+window.DESTINATIONS = [
+  { id: 'bangkok',      name: 'Bangkok',           region: 'bangkok', lat: 13.7468, lng: 100.5240, airport: 'BKK', transfer: 'Train/bus hub for the whole country' },
+  { id: 'ayutthaya',    name: 'Ayutthaya',         region: 'central', lat: 14.3532, lng: 100.5689, airport: null,  transfer: 'Train from Bangkok ~1.5 h, 20–350 ฿ · taxi ~1.5 h, 1,200–1,500 ฿' },
+  { id: 'kanchanaburi', name: 'Kanchanaburi',      region: 'central', lat: 14.0228, lng: 99.5328,  airport: null,  transfer: 'Minivan/train from Bangkok ~2.5–3 h, 100–200 ฿ · taxi ~2.5 h, 2,000–2,500 ฿' },
+  { id: 'sukhothai',    name: 'Sukhothai',         region: 'central', lat: 17.0078, lng: 99.8230,  airport: 'THS', transfer: 'Bus from Bangkok ~7 h, 300–450 ฿ · from Chiang Mai ~5 h' },
+  { id: 'chiang-mai',   name: 'Chiang Mai',        region: 'north',   lat: 18.7883, lng: 98.9853,  airport: 'CNX', transfer: 'Night train from Bangkok ~12 h, 800–1,500 ฿ (sleeper)' },
+  { id: 'chiang-rai',   name: 'Chiang Rai',        region: 'north',   lat: 19.9105, lng: 99.8406,  airport: 'CEI', transfer: 'Bus from Chiang Mai ~3 h, 150–300 ฿' },
+  { id: 'pai',          name: 'Pai',               region: 'north',   lat: 19.3583, lng: 98.4410,  airport: null,  transfer: 'Minivan from Chiang Mai ~3 h (762 curves!), 150–250 ฿' },
+  { id: 'hua-hin',      name: 'Hua Hin',           region: 'central', lat: 12.5684, lng: 99.9577,  airport: null,  transfer: 'Train/bus from Bangkok ~3.5–4.5 h, 200–600 ฿ · taxi ~3 h, 2,500–3,000 ฿' },
+  { id: 'koh-chang',    name: 'Koh Chang',         region: 'east',    lat: 12.0500, lng: 102.3300, airport: 'TDX', transfer: 'Bus + ferry from Bangkok ~6 h, 350–600 ฿ · ferry from Laem Ngop ~30 min' },
+  { id: 'koh-samui',    name: 'Koh Samui',         region: 'gulf',    lat: 9.5120,  lng: 100.0136, airport: 'USM', transfer: 'Bus/train + ferry from Bangkok ~12 h, 800–1,500 ฿ · fly to Surat Thani + ferry' },
+  { id: 'koh-phangan',  name: 'Koh Phangan',       region: 'gulf',    lat: 9.7319,  lng: 100.0136, airport: null,  transfer: 'Ferry from Samui ~30 min, 300–400 ฿ · from Surat Thani ~3 h' },
+  { id: 'koh-tao',      name: 'Koh Tao',           region: 'gulf',    lat: 10.0956, lng: 99.8404,  airport: null,  transfer: 'Lomprayah catamaran from Samui/Phangan ~1.5–2 h, 600–700 ฿ · from Chumphon ~1.5 h' },
+  { id: 'khao-sok',     name: 'Khao Sok',          region: 'andaman', lat: 8.9120,  lng: 98.5270,  airport: null,  transfer: 'Minivan from Krabi, Phuket or Surat Thani ~2–3 h, 250–400 ฿' },
+  { id: 'khao-lak',     name: 'Khao Lak',          region: 'andaman', lat: 8.6400,  lng: 98.2500,  airport: null,  transfer: 'Taxi from Phuket airport ~1.5 h, 1,200–1,800 ฿' },
+  { id: 'phuket',       name: 'Phuket',            region: 'andaman', lat: 7.8804,  lng: 98.3923,  airport: 'HKT', transfer: 'Ferry from Krabi/Phi Phi ~2 h, 400–700 ฿' },
+  { id: 'krabi',        name: 'Krabi / Ao Nang',   region: 'andaman', lat: 8.0300,  lng: 98.8231,  airport: 'KBV', transfer: 'Ferry from Phuket/Phi Phi ~1.5–2 h, 400–700 ฿ · minivan from Phuket ~3 h' },
+  { id: 'koh-phi-phi',  name: 'Koh Phi Phi',       region: 'andaman', lat: 7.7407,  lng: 98.7784,  airport: null,  transfer: 'Ferry from Phuket or Krabi ~1.5–2 h, 400–700 ฿' },
+  { id: 'koh-lanta',    name: 'Koh Lanta',         region: 'andaman', lat: 7.6250,  lng: 99.0400,  airport: null,  transfer: 'Minivan + car ferry from Krabi ~2.5 h, 300–500 ฿ · boat from Phi Phi ~1.5 h' },
+  { id: 'koh-lipe',     name: 'Koh Lipe',          region: 'south',   lat: 6.4880,  lng: 99.3040,  airport: null,  transfer: 'Speedboat from Pak Bara ~1.5 h, 650–800 ฿ (fly to Hat Yai/Trang) · Nov–May also from Lanta' },
+];
+
+// Typical one-way economy fares in THB per person between Thai airports (DMK counts as BKK).
+// Very rough guides from low-cost (AirAsia, Nok, Thai Lion, VietJet) to full-service.
+window.DOMESTIC_FARES = {
+  'BKK-CNX': [900, 2500], 'BKK-CEI': [900, 2500], 'BKK-HKT': [900, 2800], 'BKK-KBV': [900, 2600],
+  'BKK-USM': [2800, 6500], 'BKK-URT': [900, 2300], 'BKK-TDX': [2500, 5000], 'BKK-HDY': [900, 2500],
+  'BKK-TST': [900, 2300], 'BKK-THS': [2500, 4500], 'BKK-CJM': [1000, 2500], 'BKK-UTH': [900, 2200],
+  'CNX-HKT': [1500, 3800], 'CNX-KBV': [1500, 3800], 'CNX-USM': [3500, 7500], 'CNX-URT': [1500, 3500],
+  'CNX-HDY': [1500, 3800], 'CEI-HKT': [1800, 4000], 'HKT-USM': [2500, 5500], 'CNX-UTH': [1200, 3000],
+};
+
+// Typical return economy fares in SEK per person from the Nordics (usually 1 stop; direct BKK on some routes).
+// high = Dec–Feb, Easter and July; low = the rest.
+window.INTL_FARES = {
+  origins: ['ARN', 'GOT', 'CPH', 'OSL', 'HEL', 'BGO', 'MMX', 'BLL', 'AAL', 'TRD', 'SVG'],
+  to: {
+    BKK: { low: [5500, 9000], high: [8000, 14000] },
+    HKT: { low: [6500, 10500], high: [9000, 16000] },
+    CNX: { low: [7000, 11000], high: [9500, 16000] },
+    KBV: { low: [7000, 11500], high: [9500, 16500] },
+    USM: { low: [9000, 15000], high: [12000, 20000] },
+  },
+};

@@ -17,6 +17,14 @@ It needs Node 18 or newer and has no dependencies. Set `PORT=8080` to change the
 - **Categories:** must-see, beaches, islands, hiking & nature, hotels (with price level), restaurants, and **Thai airports only**. There are 31 airports, and each one is marked as international or domestic.
 - **Search and regions:** search by name, then jump to Bangkok, the North, the Andaman coast, the Gulf islands, the East, Central or the Deep South.
 - **Place details:** each place has tips, typical visit time, hike difficulty, and links to Google Maps directions and reviews.
+- **Trips & timeline:** create a trip with dates, travellers and your flights out and home. Then add the places you'll stay (Bangkok 3 nights, Chiang Mai 4, Krabi 6…) and get a day-by-day timeline:
+  - travel days with a suggested domestic flight or ferry/bus, including a rough price;
+  - a rough flight budget for the whole family;
+  - Google Flights / Skyscanner buttons with the right route and dates;
+  - Booking/Agoda and GetYourGuide/Klook/Viator searches for each stop's dates;
+  - "Things to do near…" ideas from the curated places and ready-made days.
+
+  Tap a day to plan it. Prices are **rough guide prices** (see `DESTINATIONS`, `DOMESTIC_FARES` and `INTL_FARES` in `public/data.js`), not live fares.
 - **Day planner:** build a day from places or from custom stops you tap on the map. You can reorder stops, set times and add notes. The route is drawn on the map with the walking, driving or boat distance for each leg. You can also share a day as text for WhatsApp.
 - **Ready-made days:** two Bangkok city days, Krabi 4-island, Phi Phi, Samui→Phangan→Tao, the Chiang Mai Monk's Trail, Doi Inthanon, Krabi hikes and Kanchanaburi. Preview one on the map, then add it as a day with one tap.
 - **Family sharing:** everyone who enters the same **family code** shares:
