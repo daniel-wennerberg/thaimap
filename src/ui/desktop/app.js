@@ -102,22 +102,22 @@ const fitThailand = (animate = true) => {
 L.control.zoom({ position: 'topright' }).addTo(map);
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 const street = L.tileLayer(ESRI + 'World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-  attribution: 'Tiles &copy; Esri', maxZoom: 19,
+  attribution: 'Tiles &copy; Esri', maxZoom: 19, crossOrigin: true,
 });
 const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19, crossOrigin: true,
 });
 const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-  attribution: 'Map data &copy; OpenStreetMap, SRTM | Style &copy; OpenTopoMap (CC-BY-SA)', subdomains: 'abc', maxZoom: 17,
+  attribution: 'Map data &copy; OpenStreetMap, SRTM | Style &copy; OpenTopoMap (CC-BY-SA)', subdomains: 'abc', maxZoom: 17, crossOrigin: true,
 });
 const sat = L.layerGroup([
-  L.tileLayer(ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Imagery &copy; Esri', maxZoom: 19 }),
-  L.tileLayer(ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-  L.tileLayer(ESRI + 'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, opacity: 0.55 }),
+  L.tileLayer(ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Imagery &copy; Esri', maxZoom: 19, crossOrigin: true }),
+  L.tileLayer(ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, crossOrigin: true }),
+  L.tileLayer(ESRI + 'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, opacity: 0.55, crossOrigin: true }),
 ]);
 const dark = L.layerGroup([
-  L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri', maxZoom: 16 }),
-  L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16 }),
+  L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri', maxZoom: 16, crossOrigin: true }),
+  L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, crossOrigin: true }),
 ]);
 const BASES = { sat: [T('🛰️ Satellite'), sat], dark: [T('🌑 Dark map'), dark], street: [T('🗺️ Map (English)'), street], topo: [T('⛰️ Terrain (hiking)'), topo], osm: [T('🇹🇭 OpenStreetMap (Thai names)'), osm] };
 (BASES[LS.get('base', 'sat')] || BASES.sat)[1].addTo(map);

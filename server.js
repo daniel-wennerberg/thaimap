@@ -93,7 +93,8 @@ function readBody(req) {
 
 function sanitizeNote(b) {
   const note = {
-    id: crypto.randomUUID(),
+    // Clients may pick the id (notes written offline keep theirs, and a replayed POST stays idempotent)
+    id: /^[\w-]{6,60}$/.test(b.id || '') ? b.id : crypto.randomUUID(),
     author: clip(b.author, 40) || 'Someone',
     color: /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : '#0d9488',
     text: clip(b.text, 2000).trim(),
@@ -101,7 +102,8 @@ function sanitizeNote(b) {
     parentId: b.parentId ? clip(b.parentId, 60) : null,
     lat: num(b.lat), lng: num(b.lng),
     kind: ['note', 'idea', 'warning', 'love'].includes(b.kind) ? b.kind : 'note',
-    createdAt: Date.now(),
+    // Offline notes keep their own time (within the last 30 days, never in the future)
+    createdAt: Number.isFinite(b.createdAt) && b.createdAt <= Date.now() && b.createdAt > Date.now() - 30 * 864e5 ? b.createdAt : Date.now(),
   };
   if (!note.text) throw Object.assign(new Error('Text required'), { status: 400 });
   if (!note.placeId && !note.parentId && (note.lat === null || note.lng === null))
@@ -188,7 +190,13 @@ async function api(req, res, parts) {
   if (resource === 'notes') {
     if (req.method === 'POST' && !id) {
       const note = sanitizeNote(await readBody(req));
-      await mutate(code, (s) => { s.notes.push(note); if (s.notes.length > 5000) s.notes.shift(); });
+      const existing = await mutate(code, (s) => {
+        const dup = s.notes.find((n) => n.id === note.id);
+        if (dup) return dup;
+        s.notes.push(note); if (s.notes.length > 5000) s.notes.shift();
+        return null;
+      });
+      if (existing) return send(res, 200, existing);
       broadcast(code, { type: 'note:add', note });
       return send(res, 201, note);
     }

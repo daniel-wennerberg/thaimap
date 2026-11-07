@@ -6,6 +6,7 @@ import type {
 import { PLACES } from './data/catalog';
 import { T } from './i18n';
 import { Emitter, LS, km, rid } from './util';
+import { idbGet, idbSet } from './persist';
 import { fmtTime } from './format';
 import { PLACE } from './domain/places';
 import { dayPlanFor, stayPlaceName, tripDays } from './domain/trip';
@@ -79,24 +80,108 @@ export const hasUnread = () => state.notes.some((n) => n.createdAt > state.lastS
 export const markSeen = () => { state.lastSeen = Date.now(); LS.set('lastSeen', state.lastSeen); };
 
 // ── server / on-device ────────────────────────────────────────
-const localKey = () => 'local:' + (state.family || 'solo');
-const persistLocal = () => LS.set(localKey(), { notes: state.notes, plans: state.plans, trips: state.trips });
+// Every family keeps a snapshot on the device (IndexedDB). When the family has a server and the network is
+// gone, changes are applied locally and queued in an outbox that is replayed as soon as the server is back.
+type Op =
+  | { op: 'put'; kind: 'plans' | 'trips'; id: string }
+  | { op: 'del'; kind: 'plans' | 'trips' | 'notes'; id: string }
+  | { op: 'note'; note: Note };
+interface Snapshot { notes: Note[]; plans: DayPlan[]; trips: Trip[]; server: boolean; savedAt: number }
+
 const base = () => `/api/family/${encodeURIComponent(state.family || '')}`;
+const snapKey = () => 'fam:' + (state.family || 'solo');
+const outboxKey = () => 'outbox:' + (state.family || 'solo');
+let hasServer = false;          // this family has synced with a server before → queue offline changes
+let outbox: Op[] = [];
+let snapTimer: ReturnType<typeof setTimeout> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let flushing = false;
+
+/** HTTP error from the server (as opposed to the network being down). */
+class HttpError extends Error { constructor(msg: string, public status: number) { super(msg); } }
 
 export async function req<R = unknown>(method: string, path = '', body?: unknown): Promise<R> {
   const r = await fetch(base() + path, {
     method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  if (!r.ok) throw new HttpError((await r.json().catch(() => ({}))).error || r.statusText, r.status);
   return r.json() as Promise<R>;
 }
 
+export const pendingChanges = () => outbox.length;
+
 export function connMessage(): string {
   if (!state.family || state.online) return '';
+  if (hasServer) {
+    return outbox.length
+      ? T('📴 Offline — {n} changes will sync when you’re back online', { n: outbox.length })
+      : T('📴 Offline — showing your saved trip. Changes sync when you’re back online');
+  }
   if (location.hostname.endsWith('github.io')) return T('ℹ️ Web-only version: notes & plans are saved on this device (family sync needs the server)');
   return location.protocol.startsWith('http')
     ? T('⚠️ Can’t reach the server — changes are saved on this device only')
     : T('⚠️ Opened as a file — run “npm start” to share with family');
+}
+
+/** Save the family snapshot on the device (debounced). */
+function persist() {
+  clearTimeout(snapTimer);
+  snapTimer = setTimeout(() => {
+    const snap: Snapshot = { notes: state.notes, plans: state.plans, trips: state.trips, server: hasServer, savedAt: Date.now() };
+    idbSet(snapKey(), snap);
+  }, 150);
+}
+function enqueue(op: Op) {
+  if (op.op === 'put') outbox = outbox.filter((o) => !(o.op === 'put' && o.id === op.id)); // keep only the latest put per doc
+  outbox.push(op);
+  idbSet(outboxKey(), outbox);
+  emit('conn', connMessage());
+}
+/** Run a server write now, or queue it when offline. Network failure while "online" flips us to offline. */
+async function write(op: Op, run: () => Promise<unknown>): Promise<void> {
+  if (!hasServer) return;                       // on-device only family: nothing to send
+  if (!state.online) return enqueue(op);
+  try { await run(); } catch (e) {
+    if (e instanceof HttpError) { notify(T('Could not save: ') + e.message); return; }
+    goOffline(); enqueue(op);
+  }
+}
+function goOffline() {
+  if (!state.online) return;
+  state.online = false;
+  if (es) { es.close(); es = null; }
+  emit('conn', connMessage());
+  scheduleRetry();
+}
+function scheduleRetry() {
+  clearTimeout(retryTimer);
+  if (hasServer && state.family) retryTimer = setTimeout(() => connect(), 20000);
+}
+if (typeof window !== 'undefined') window.addEventListener('online', () => { if (hasServer && !state.online) connect(); });
+
+/** Replay queued offline changes (oldest first). Stops at the first network failure. */
+async function flushOutbox(): Promise<boolean> {
+  if (flushing || !outbox.length) return true;
+  flushing = true;
+  try {
+    while (outbox.length) {
+      const o = outbox[0];
+      try {
+        if (o.op === 'note') await req('POST', '/notes', o.note);
+        else if (o.op === 'del') await req('DELETE', `/${o.kind}/` + encodeURIComponent(o.id));
+        else {
+          const doc = (state[o.kind] as { id: string }[]).find((d) => d.id === o.id);
+          if (doc) await req('PUT', `/${o.kind}/` + o.id, doc);
+        }
+      } catch (e) {
+        if (!(e instanceof HttpError)) return false; // network still flaky — try again later
+        // the server rejected it (e.g. already deleted) — drop it and carry on
+      }
+      outbox.shift();
+      await idbSet(outboxKey(), outbox);
+    }
+    return true;
+  } finally { flushing = false; }
 }
 
 function loadLive(d: FamilySnapshot) {
@@ -107,27 +192,60 @@ function mergeDocs<K extends 'plans' | 'trips'>(kind: K, serverDocs: FamilyState
   const keep = (state[kind] as { id: string }[]).filter((p) => dirty.has(p.id));
   state[kind] = (serverDocs as { id: string }[]).filter((p) => !dirty.has(p.id)).concat(keep) as FamilyState[K];
 }
-
-/** (Re)load the family: from the server when reachable, otherwise from this device. */
-export async function connect(): Promise<void> {
-  if (es) { es.close(); es = null; }
-  state.online = false;
-  if (state.family && location.protocol.startsWith('http')) {
-    try {
-      const data = await req<FamilySnapshot>('GET');
-      state.notes = data.notes; state.plans = data.plans; state.trips = data.trips || []; state.online = true;
-      loadLive(data);
-      openStream();
-    } catch { /* fall back to on-device */ }
-  }
-  if (!state.online) {
-    const local = LS.get<{ notes: Note[]; plans: DayPlan[]; trips?: Trip[] }>(localKey(), { notes: [], plans: [] });
-    state.notes = local.notes; state.plans = local.plans; state.trips = local.trips || [];
-    state.meetups = []; state.locations = {};
-  }
+function applySnapshot(d: { notes: Note[]; plans: DayPlan[]; trips?: Trip[] }) {
+  state.notes = d.notes || []; state.plans = d.plans || []; state.trips = d.trips || [];
+}
+function fixSelection() {
   if (!activePlan()) state.activePlanId = state.plans[0]?.id || null;
   if (!activeTrip() && !(state.activeTripId === '__loose' && state.plans.some((p) => !p.tripId)))
     state.activeTripId = state.trips[0]?.id || (state.plans.some((p) => !p.tripId) ? '__loose' : null);
+}
+
+let loadedFamily: string | null | undefined;
+
+/** (Re)load the family: instantly from this device, then from the server when reachable. */
+export async function connect(): Promise<void> {
+  clearTimeout(retryTimer);
+  if (es) { es.close(); es = null; }
+  state.online = false;
+  // 1) on-device snapshot first, so the trip shows instantly — also with no network at all
+  if (loadedFamily !== state.family) {
+    loadedFamily = state.family;
+    const snap = await idbGet<Snapshot>(snapKey());
+    const legacy = LS.get<{ notes: Note[]; plans: DayPlan[]; trips?: Trip[] } | null>('local:' + (state.family || 'solo'), null);
+    hasServer = !!snap?.server;
+    outbox = (await idbGet<Op[]>(outboxKey())) || [];
+    applySnapshot(snap || legacy || { notes: [], plans: [] });
+    state.meetups = []; state.locations = {};
+    fixSelection();
+    emit('all', undefined);
+  }
+  // 2) the server, if there is one
+  if (state.family && location.protocol.startsWith('http')) {
+    try {
+      let data = await req<FamilySnapshot>('GET');
+      if (!hasServer) {
+        // first contact with a server: upload what was planned on this device before, instead of losing it
+        const known = new Set([...data.plans, ...(data.trips || []), ...data.notes].map((d) => d.id));
+        state.trips.forEach((t) => { if (!known.has(t.id)) outbox.push({ op: 'put', kind: 'trips', id: t.id }); });
+        state.plans.forEach((p) => { if (!known.has(p.id)) outbox.push({ op: 'put', kind: 'plans', id: p.id }); });
+        state.notes.forEach((n) => { if (!known.has(n.id)) outbox.push({ op: 'note', note: n }); });
+      }
+      hasServer = true; state.online = true;
+      if (outbox.length) {                       // send what was changed offline, then reload the merged result
+        await flushOutbox();
+        data = await req<FamilySnapshot>('GET');
+      }
+      applySnapshot(data);
+      loadLive(data);
+      persist();
+      openStream();
+    } catch (e) {
+      state.online = false;
+      if (!(e instanceof HttpError)) scheduleRetry();
+    }
+  }
+  fixSelection();
   emit('conn', connMessage());
   emit('all', undefined);
   if (state.sharing && state.online) startSharing();
@@ -137,16 +255,25 @@ function openStream() {
   es = new EventSource(base() + '/events');
   let first = true;
   es.onopen = async () => {
+    const wasOffline = !state.online;
+    state.online = true;
     emit('conn', connMessage());
-    if (first) { first = false; return; }
+    if (first && !wasOffline) { first = false; return; }
+    first = false;
     try {
+      await flushOutbox();
       const d = await req<FamilySnapshot>('GET');
       state.notes = d.notes; mergeDocs('plans', d.plans); mergeDocs('trips', d.trips || []); loadLive(d);
+      persist();
+      emit('conn', connMessage());
       emit('all', undefined);
       if (myPos) sendPosition();
     } catch { /* retry later */ }
   };
-  es.onerror = () => emit('conn', T('Reconnecting to family…'));
+  es.onerror = () => {
+    // EventSource retries by itself; meanwhile writes go to the outbox
+    if (state.online) { state.online = false; emit('conn', T('Reconnecting to family…')); }
+  };
   es.onmessage = (e) => { try { applyEvent(JSON.parse(e.data)); } catch { /* ignore */ } };
 }
 
@@ -161,6 +288,7 @@ export function join(me: Me, code: string): boolean {
 }
 
 function applyEvent(ev: ServerEvent) {
+  if (ev.type.startsWith('note') || ev.type.startsWith('plan') || ev.type.startsWith('trip')) persist();
   switch (ev.type) {
     case 'note:add': {
       if (state.notes.some((n) => n.id === ev.note.id)) return;
@@ -230,21 +358,26 @@ function applyEvent(ev: ServerEvent) {
 
 // ── notes ─────────────────────────────────────────────────────
 export async function addNote(body: Omit<Note, 'id' | 'createdAt'>): Promise<Note> {
-  if (!state.online) {
-    const n: Note = { ...body, id: rid(), createdAt: Date.now() };
-    state.notes.push(n); persistLocal(); emit('notes', undefined); return n;
+  const n: Note = { ...body, id: rid(), createdAt: Date.now() };
+  if (state.online && hasServer) {
+    try {
+      const saved = await req<Note>('POST', '/notes', n);
+      if (!state.notes.some((x) => x.id === saved.id)) state.notes.push(saved);
+      persist(); emit('notes', undefined); return saved;
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      goOffline();
+    }
   }
-  const n = await req<Note>('POST', '/notes', body);
-  if (!state.notes.some((x) => x.id === n.id)) { state.notes.push(n); emit('notes', undefined); }
+  state.notes.push(n);
+  if (hasServer) enqueue({ op: 'note', note: n });
+  persist(); emit('notes', undefined);
   return n;
 }
 export async function deleteNote(id: string): Promise<void> {
-  if (!state.online) {
-    state.notes = state.notes.filter((n) => n.id !== id && n.parentId !== id);
-    persistLocal(); emit('notes', undefined); return;
-  }
-  await req('DELETE', '/notes/' + encodeURIComponent(id));
-  applyEvent({ type: 'note:delete', ids: [id, ...state.notes.filter((n) => n.parentId === id).map((n) => n.id)] });
+  state.notes = state.notes.filter((n) => n.id !== id && n.parentId !== id);
+  persist(); emit('notes', undefined);
+  await write({ op: 'del', kind: 'notes', id }, () => req('DELETE', '/notes/' + encodeURIComponent(id)));
 }
 
 // ── plans & trips (mutate in place, then queueSave) ───────────
@@ -259,8 +392,8 @@ async function saveDoc(kind: 'plans' | 'trips', id: string) {
   if (!doc) return;
   doc.rev = rid(); lastRev[id] = doc.rev; doc.updatedBy = state.me?.name || '';
   dirty.delete(id);
-  if (!state.online) return persistLocal();
-  try { await req('PUT', `/${kind}/` + id, doc); } catch (e) { notify(T('Could not save: ') + (e as Error).message); }
+  persist();
+  await write({ op: 'put', kind, id }, () => req('PUT', `/${kind}/` + id, doc));
 }
 export const changed = (what: 'plans' | 'notes' = 'plans') => emit(what, undefined);
 
@@ -268,16 +401,18 @@ export async function deletePlan(id: string): Promise<void> {
   clearTimeout(saveTimers[id]); dirty.delete(id);
   state.plans = state.plans.filter((p) => p.id !== id);
   if (state.activePlanId === id) state.activePlanId = state.plans[0]?.id || null;
-  if (!state.online) persistLocal();
-  else try { await req('DELETE', '/plans/' + id); } catch (e) { notify(T('Could not delete: ') + (e as Error).message); }
+  persist();
+  outbox = outbox.filter((o) => !(o.op === 'put' && o.id === id));
+  await write({ op: 'del', kind: 'plans', id }, () => req('DELETE', '/plans/' + id));
   emit('plans', undefined);
 }
 export async function deleteTrip(trip: Trip): Promise<void> {
   for (const p of state.plans.filter((x) => x.tripId === trip.id)) await deletePlan(p.id);
   clearTimeout(saveTimers[trip.id]); dirty.delete(trip.id);
   state.trips = state.trips.filter((t) => t.id !== trip.id);
-  if (!state.online) persistLocal();
-  else try { await req('DELETE', '/trips/' + trip.id); } catch (e) { notify(T('Could not delete: ') + (e as Error).message); }
+  persist();
+  outbox = outbox.filter((o) => !(o.op === 'put' && o.id === trip.id));
+  await write({ op: 'del', kind: 'trips', id: trip.id }, () => req('DELETE', '/trips/' + trip.id));
   state.activeTripId = state.trips[0]?.id || (state.plans.some((p) => !p.tripId) ? '__loose' : null);
   LS.set('activeTrip', state.activeTripId);
   emit('plans', undefined);

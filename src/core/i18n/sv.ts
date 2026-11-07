@@ -272,5 +272,12 @@ export const I18N_SV: Record<string, string> = {
   "🛰️ Satellite": "🛰️ Satellit",
   "🥾 Hiking": "🥾 Vandring",
   "🧳 Tap the map where you’ll stay": "🧳 Tryck på kartan där ni ska bo",
-  "🧳 {who} created the trip “{name}”": "🧳 {who} skapade resan ”{name}”"
+  "🧳 {who} created the trip “{name}”": "🧳 {who} skapade resan ”{name}”",
+  "📴 Offline — {n} changes will sync when you’re back online": "📴 Offline – {n} ändringar synkas när du är online igen",
+  "📴 Offline — showing your saved trip. Changes sync when you’re back online": "📴 Offline – visar er sparade resa. Ändringar synkas när du är online igen",
+  "Install app": "Installera appen",
+  "Install ThaiMap on your phone: tap Share, then “Add to Home Screen”.": "Installera ThaiMap på mobilen: tryck på Dela och sedan ”Lägg till på hemskärmen”.",
+  "A new version is ready": "En ny version finns",
+  "Update": "Uppdatera",
+  "Ready to use offline ✓": "Redo att användas offline ✓",
 };

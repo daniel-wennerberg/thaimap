@@ -40,6 +40,7 @@ It needs Node 20 or newer. Set `PORT=8080` to change the port and `DATA_DIR=/pat
 - **Find each other:** each person can switch on *Share me* (Family tab) to appear live on the map, with a last-seen time and their distance from you. 👪 shows everyone at once.
 - **Meetup points:** if you split up, tap 🚩 Meet and choose a spot on the map, use *Meet here* on a place, or let *Meet in the middle* pick a point between everyone. You can set a time. Everyone gets notified and can answer on my way / running late / I'm here / can't make it, and sees each person's distance and walking ETA. People are marked as arrived automatically when they reach the spot.
 - Works on phones, where the panel becomes a bottom sheet.
+- **Installable app (PWA) that works offline:** install it from the browser (⬇︎ button in the header; on iPhone: Share → Add to Home Screen). The app itself, map tiles you have looked at, fonts and Leaflet are cached. Each family's notes, day plans and trips are kept on the device (IndexedDB), so the trip opens with no network at all. Changes made offline are queued and sent automatically when the connection is back (you see "📴 Offline – N changes will sync…"). Live locations and meetups need a connection.
 - **English / Svenska:** the app follows the browser language and has a 🇸🇪/🇬🇧 switch in the header. UI texts are in `src/core/i18n/sv.ts` (the key is the English text), and the Swedish place and day texts are in `src/core/i18n/data.sv.ts`.
 
 ## Sharing with family
@@ -70,8 +71,11 @@ src/core/                 shared, framework-free TypeScript: used by every view
   data/catalog.ts         places, categories, regions, ready-made days, destinations, guide fares  ← edit to add places
   i18n/                   T(), Swedish UI texts (sv.ts) and Swedish place texts (data.sv.ts)
   domain/                 pure logic: trip days & travel days, fares, ideas, routes, outbound links
-  store.ts                state, server sync (REST + SSE), on-device fallback, live location, meetups, events
+  store.ts                state, server sync (REST + SSE), offline snapshot + outbox, live location, meetups, events
+  persist.ts              tiny IndexedDB key-value store
 src/ui/desktop/           current view layer: floating glass panels over a full-screen Leaflet map
+src/ui/pwa.ts             service worker registration, update prompt, install button (shared by all shells)
+public/                   app icons (copied as-is into the build)
 src/ui/map/neighbors.json neighbouring-country shapes (Natural Earth 10m, public domain), lazy-loaded
 ```
 
