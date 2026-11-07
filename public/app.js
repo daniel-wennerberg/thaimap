@@ -256,19 +256,29 @@
     zoomControl: false, minZoom: 5, maxBounds: TH_BOUNDS.pad(0.25), maxBoundsViscosity: 1, worldCopyJump: false,
   }).fitBounds(TH_BOUNDS);
   L.control.zoom({ position: 'topright' }).addTo(map);
-  const street = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+  const street = L.tileLayer(ESRI + 'World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri', maxZoom: 19,
-  }).addTo(map);
+  });
   const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19,
   });
   const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
     attribution: 'Map data &copy; OpenStreetMap, SRTM | Style &copy; OpenTopoMap (CC-BY-SA)', subdomains: 'abc', maxZoom: 17,
   });
-  const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Imagery &copy; Esri', maxZoom: 19,
-  });
-  L.control.layers({ [T('🗺️ Map (English)')]: street, [T('🛰️ Satellite')]: sat, [T('⛰️ Terrain (hiking)')]: topo, [T('🇹🇭 OpenStreetMap (Thai names)')]: osm }, null, { position: 'topright' }).addTo(map);
+  const sat = L.layerGroup([
+    L.tileLayer(ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Imagery &copy; Esri', maxZoom: 19 }),
+    L.tileLayer(ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
+    L.tileLayer(ESRI + 'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, opacity: 0.55 }),
+  ]);
+  const dark = L.layerGroup([
+    L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri', maxZoom: 16 }),
+    L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16 }),
+  ]);
+  const BASES = { sat: [T('🛰️ Satellite'), sat], dark: [T('🌑 Dark map'), dark], street: [T('🗺️ Map (English)'), street], topo: [T('⛰️ Terrain (hiking)'), topo], osm: [T('🇹🇭 OpenStreetMap (Thai names)'), osm] };
+  (BASES[LS.get('base', 'sat')] || BASES.sat)[1].addTo(map);
+  L.control.layers(Object.fromEntries(Object.values(BASES)), null, { position: 'topright' }).addTo(map);
+  map.on('baselayerchange', (e) => { const k = Object.keys(BASES).find((x) => BASES[x][1] === e.layer); if (k) LS.set('base', k); });
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
   // Grey out neighbouring countries so Thailand stands out (sea stays clear for island hopping)
@@ -278,7 +288,7 @@
   if (window.NEIGHBORS) {
     L.geoJSON(window.NEIGHBORS, {
       pane: 'mask', interactive: false,
-      style: { stroke: true, color: '#9ca3af', weight: 0.5, fillColor: '#64748b', fillOpacity: 0.55 },
+      style: { stroke: true, color: 'rgba(255,255,255,.35)', weight: 0.6, fillColor: '#05070a', fillOpacity: 0.6 },
     }).addTo(map);
   }
   // Compact domestic-airport badges when zoomed out to keep the country view readable
@@ -1868,20 +1878,58 @@
   }, 30000);
 
   // ── render orchestration ────────────────────────────────────
-  function onFilterChanged() { renderChips(); renderList(); renderMarkers(); }
+  function onFilterChanged() { renderChips(); renderList(); renderMarkers(); renderHud(); }
   function onNotesChanged() { refreshAllIcons(); renderNotes(); renderList(); renderDetail(); renderFamily(); }
   function onPlansChanged() {
     if (state.view === 'day' && !tripDayMode()) state.view = 'trip';
     renderTripBar(); renderTripView(); renderDayHead();
-    renderPlanSelect(); renderPlanEditor(); renderRoute(); renderTemplates(); renderDetail(); renderFamily();
+    renderPlanSelect(); renderPlanEditor(); renderRoute(); renderTemplates(); renderDetail(); renderFamily(); renderHud();
   }
   function renderAll() {
     renderBadge(); onFilterChanged(); onNotesChanged(); onPlansChanged(); setConnBanner();
-    renderMembers(); renderMeetups(); renderLive();
+    renderMembers(); renderMeetups(); renderLive(); renderHud();
   }
 
   // Re-render "x min ago" labels now and then
   setInterval(() => { if (!document.activeElement?.closest?.('.compose')) { renderFeed(); } }, 60000);
+
+  // ── map HUD: big title + floating stat cards ────────────────
+  const stat = (label, value, sub = '', c = '') =>
+    `<div class="stat glass"${c ? ` style="--c:${c}"` : ''}><div class="stat-label"><i></i>${label}</div><div class="stat-value">${value}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ''}</div>`;
+  function renderHud() {
+    const trip = activeTrip();
+    let kicker, title, cards = [];
+    if (trip) {
+      const { days, diff } = tripDays(trip);
+      const planned = days.filter((d) => dayPlanFor(trip, d.date)?.stops.length).length;
+      const out = flightOf(trip, 'out');
+      const fare = out ? intlFare(trip.home, out.to, out.date) : null;
+      kicker = `${T('Trip')} · ${fmtDay(trip.start, { day: 'numeric', month: 'short' })} – ${fmtDay(addDays(trip.start, trip.days - 1), { day: 'numeric', month: 'short', year: 'numeric' })}`;
+      title = trip.name;
+      cards = [
+        stat(T('Days'), `${trip.days}<small>${T('{n} planned', { n: planned })}</small>`, '', '#2dd4bf'),
+        stat(T('Stops'), `${trip.stays.length}<small>${T('{n} nights', { n: trip.stays.reduce((t, s) => t + s.nights, 0) })}</small>`, diff ? `⚠️ ${T(diff > 0 ? '{n} nights not planned yet' : '{n} nights too many', { n: Math.abs(diff) })}` : '', '#fb923c'),
+        fare ? stat(T('Flights'), `${nf(fare.lo * trip.travellers / 1000)}–${nf(fare.hi * trip.travellers / 1000)}<small>k SEK</small>`, `${trip.travellers} × ${fare.season}`, '#a78bfa') : '',
+      ];
+    } else {
+      const r = REGIONS[state.region];
+      kicker = T('Explore');
+      title = state.region === 'all' ? 'Thailand' : r.label;
+      const live = Object.values(state.locations).filter((l) => Date.now() - l.ts < STALE).length;
+      cards = [
+        stat(T('Places'), PLACES.filter(matches).length, '', '#2dd4bf'),
+        state.family ? stat(T('Family online'), live, '', '#a78bfa') : '',
+        state.family ? stat(T('Meetups'), activeMeetups().length, '', '#fb923c') : '',
+      ];
+    }
+    $('#hudKicker').textContent = kicker;
+    $('#hudTitle').textContent = title;
+    $('#hudStats').innerHTML = cards.join('');
+  }
+  const setPanel = (on) => { $('#app').classList.toggle('panel-off', !on); LS.set('panelOff', !on); };
+  $('#panelHide').addEventListener('click', () => setPanel(false));
+  $('#panelShow').addEventListener('click', () => setPanel(true));
+  if (LS.get('panelOff', false)) setPanel(false);
 
   // ── static texts & language switch ──────────────────────────
   $$('[data-i18n]').forEach((el) => { el.textContent = T(el.dataset.i18n); });

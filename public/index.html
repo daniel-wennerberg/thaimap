@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ThaiMap — Family Trip Planner</title>
-  <meta name="theme-color" content="#0f766e" />
+  <meta name="theme-color" content="#0a0c0f" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏝️</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="styles.css" />
@@ -23,6 +23,7 @@
           <p id="familyBadge" class="family-badge" data-i18n="Not in a family yet">Not in a family yet</p>
         </div>
         <button id="langBtn" class="lang-btn" type="button" aria-label="Language / Språk"></button>
+        <button id="panelHide" class="panel-hide" type="button" data-i18n-title="Hide panel" title="Hide panel">⟨</button>
       </header>
 
       <nav class="tabs" role="tablist">
@@ -69,9 +70,12 @@
       </section>
     </aside>
 
+    <button id="panelShow" class="panel-show glass" type="button" data-i18n-title="Show panel" title="Show panel">☰</button>
     <main id="mapWrap">
       <div id="map"></div>
-      <div class="fab-stack">
+      <div id="mapHud" class="map-hud"><div id="hudKicker" class="hud-kicker"></div><h2 id="hudTitle" class="hud-title"></h2></div>
+      <div id="hudStats" class="hud-stats"></div>
+      <div class="fab-stack glass">
         <button id="dropNoteBtn" class="fab" title="Drop a note on the map" data-i18n-title="Drop a note on the map">📍<span data-i18n="Note">Note</span></button>
         <button id="meetBtn" class="fab" title="Set a meetup point" data-i18n-title="Set a meetup point">🚩<span data-i18n="Meet">Meet</span></button>
         <button id="familyBtn" class="fab" title="Find the family on the map" data-i18n-title="Find the family on the map">👪</button>
