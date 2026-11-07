@@ -35,6 +35,7 @@ It needs Node 18 or newer and has no dependencies. Set `PORT=8080` to change the
 - **Find each other:** each person can switch on *Share me* (Family tab) to appear live on the map, with a last-seen time and their distance from you. 👪 shows everyone at once.
 - **Meetup points:** if you split up, tap 🚩 Meet and choose a spot on the map, use *Meet here* on a place, or let *Meet in the middle* pick a point between everyone. You can set a time. Everyone gets notified and can answer on my way / running late / I'm here / can't make it, and sees each person's distance and walking ETA. People are marked as arrived automatically when they reach the spot.
 - Works on phones, where the panel becomes a bottom sheet.
+- **English / Svenska:** the app follows the browser language and has a 🇸🇪/🇬🇧 switch in the header. UI texts are in `public/i18n.sv.js` (the key is the English text), and the Swedish place and day texts are in `public/data.sv.js`.
 
 ## Sharing with family
 
@@ -62,6 +63,8 @@ public/styles.css
 public/app.js     map, panels, planner, comments, sync
 public/neighbors.js  neighbouring-country shapes (Natural Earth 10m, public domain) for the grey mask
 public/data.js    places, categories, regions, ready-made day templates  ← edit to add places
+public/data.sv.js Swedish texts for places, days and destinations
+public/i18n.sv.js Swedish UI texts
 ```
 
 To add a place, add an entry to `PLACES` in `public/data.js` (`id`, `cat`, `region`, `name`, `lat`, `lng`, `desc`, `tip`, …).

@@ -351,3 +351,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dialog form { padding: 16px; }
 }
+
+.lang-btn { margin-left: auto; align-self: center; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 5px 10px;
+  font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.lang-btn:hover { border-color: var(--teal); }

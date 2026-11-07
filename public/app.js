@@ -7,10 +7,36 @@
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+  // ── language (English / Swedish) ────────────────────────────
+  const LANG = (() => {
+    let s = null; try { s = JSON.parse(localStorage.getItem('thaimap:lang')); } catch { /* private mode */ }
+    return s === 'sv' || s === 'en' ? s : ((navigator.language || '').toLowerCase().startsWith('sv') ? 'sv' : 'en');
+  })();
+  const LOCALE = LANG === 'sv' ? 'sv-SE' : 'en-GB';
+  // T('Added to “{name}” ✓', { name }) — English text is the key; Swedish lives in i18n.sv.js
+  const T = (s, v) => {
+    let r = (LANG === 'sv' && window.I18N_SV?.[s]) || s;
+    if (v) r = r.replace(/\{(\w+)\}/g, (_, k) => (v[k] ?? ''));
+    return r;
+  };
+  if (LANG === 'sv' && window.DATA_SV) {
+    const D = window.DATA_SV;
+    Object.entries(D.categories || {}).forEach(([k, l]) => { if (CATEGORIES[k]) CATEGORIES[k].label = l; });
+    Object.entries(D.regions || {}).forEach(([k, l]) => { if (REGIONS[k]) REGIONS[k].label = l; });
+    PLACES.forEach((p) => Object.assign(p, D.places?.[p.id] || {}));
+    TEMPLATES.forEach((t) => {
+      const x = D.templates?.[t.id]; if (!x) return;
+      if (x.name) t.name = x.name; if (x.blurb) t.blurb = x.blurb;
+      (x.notes || []).forEach((n, i) => { if (t.stops[i] && n) t.stops[i].note = n; });
+    });
+    DESTINATIONS.forEach((d) => { const x = D.destinations?.[d.id]; if (x?.transfer) d.transfer = x.transfer; });
+  }
+  document.documentElement.lang = LANG;
   const PLACE = Object.fromEntries(PLACES.map((p) => [p.id, p]));
   const COLORS = ['#0f766e', '#ea580c', '#7c3aed', '#db2777', '#2563eb', '#ca8a04', '#16a34a', '#475569'];
-  const KINDS = { note: ['📝', 'Note'], idea: ['💡', 'Idea'], warning: ['⚠️', 'Heads-up'], love: ['❤️', 'Must do!'] };
-  const TPL_TYPES = { all: 'All', city: '🏙️ City days', islands: '🚤 Island hopping', hiking: '🥾 Hiking' };
+  const KINDS = { note: ['📝', T('Note')], idea: ['💡', T('Idea')], warning: ['⚠️', T('Heads-up')], love: ['❤️', T('Must do!')] };
+  const TPL_TYPES = { all: T('All'), city: T('🏙️ City days'), islands: T('🚤 Island hopping'), hiking: T('🥾 Hiking') };
   const PRICE = ['', '฿', '฿฿', '฿฿฿', '฿฿฿฿'];
 
   const LS = {
@@ -26,11 +52,11 @@
   };
   const ago = (t) => {
     const s = (Date.now() - t) / 1000;
-    if (s < 60) return 'just now';
-    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-    if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
-    return new Date(t).toLocaleDateString();
+    if (s < 60) return T('just now');
+    if (s < 3600) return T('{n}m ago', { n: Math.floor(s / 60) });
+    if (s < 86400) return T('{n}h ago', { n: Math.floor(s / 3600) });
+    if (s < 604800) return T('{n}d ago', { n: Math.floor(s / 86400) });
+    return new Date(t).toLocaleDateString(LOCALE);
   };
   const toast = (msg) => {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -124,7 +150,7 @@
       if (first) { first = false; return; }
       try { const d = await req('GET'); state.notes = d.notes; mergeDocs('plans', d.plans); mergeDocs('trips', d.trips || []); loadLive(d); renderAll(); if (myPos) sendPosition(); } catch { /* retry later */ }
     };
-    es.onerror = () => setConnBanner('Reconnecting to family…');
+    es.onerror = () => setConnBanner(T('Reconnecting to family…'));
     es.onmessage = (e) => { try { applyEvent(JSON.parse(e.data)); } catch { /* ignore */ } };
   }
 
@@ -136,10 +162,10 @@
   function setConnBanner(msg) {
     const b = $('#connBanner');
     if (!msg && state.family && !state.online) msg = location.hostname.endsWith('github.io')
-      ? 'ℹ️ Web-only version: notes & plans are saved on this device (family sync needs the server)'
+      ? T('ℹ️ Web-only version: notes & plans are saved on this device (family sync needs the server)')
       : location.protocol.startsWith('http')
-      ? '⚠️ Can’t reach the server — changes are saved on this device only'
-      : '⚠️ Opened as a file — run “npm start” to share with family';
+      ? T('⚠️ Can’t reach the server — changes are saved on this device only')
+      : T('⚠️ Opened as a file — run “npm start” to share with family');
     b.textContent = msg || ''; b.classList.toggle('hidden', !msg);
   }
 
@@ -149,8 +175,8 @@
       if (state.notes.some((n) => n.id === ev.note.id)) return;
       state.notes.push(ev.note);
       if (ev.note.author !== state.me?.name) {
-        const where = ev.note.placeId ? PLACE[ev.note.placeId]?.name : 'the map';
-        toast(`💬 ${ev.note.author} commented on ${where || 'the map'}`);
+        const where = (ev.note.placeId && PLACE[ev.note.placeId]?.name) || T('the map');
+        toast(T('💬 {who} commented on {where}', { who: ev.note.author, where }));
       }
       onNotesChanged();
     } else if (ev.type === 'note:delete') {
@@ -169,7 +195,7 @@
       if (dirty.has(t.id) || (lastRev[t.id] && t.rev === lastRev[t.id])) return;
       const i = state.trips.findIndex((x) => x.id === t.id);
       if (i >= 0) state.trips[i] = t; else { state.trips.push(t); if (!activeTrip()) state.activeTripId = t.id; }
-      if (t.updatedBy && t.updatedBy !== state.me?.name && i < 0) toast(`🧳 ${t.updatedBy} created the trip “${t.name}”`);
+      if (t.updatedBy && t.updatedBy !== state.me?.name && i < 0) toast(T('🧳 {who} created the trip “{name}”', { who: t.updatedBy, name: t.name }));
       onPlansChanged();
     } else if (ev.type === 'trip:delete') {
       state.trips = state.trips.filter((t) => t.id !== ev.id);
@@ -213,14 +239,14 @@
     doc.rev = rid(); lastRev[id] = doc.rev; doc.updatedBy = state.me?.name || '';
     dirty.delete(id);
     if (!state.online) return persistLocal();
-    try { await req('PUT', `/${kind}/` + id, doc); } catch (e) { toast('Could not save: ' + e.message); }
+    try { await req('PUT', `/${kind}/` + id, doc); } catch (e) { toast(T('Could not save: ') + e.message); }
   }
   async function deletePlan(id) {
     clearTimeout(saveTimers[id]); dirty.delete(id);
     state.plans = state.plans.filter((p) => p.id !== id);
     if (state.activePlanId === id) state.activePlanId = state.plans[0]?.id || null;
     if (!state.online) persistLocal();
-    else try { await req('DELETE', '/plans/' + id); } catch (e) { toast('Could not delete: ' + e.message); }
+    else try { await req('DELETE', '/plans/' + id); } catch (e) { toast(T('Could not delete: ') + e.message); }
     onPlansChanged();
   }
 
@@ -242,7 +268,7 @@
   const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Imagery &copy; Esri', maxZoom: 19,
   });
-  L.control.layers({ '🗺️ Map (English)': street, '🛰️ Satellite': sat, '⛰️ Terrain (hiking)': topo, '🇹🇭 OpenStreetMap (Thai names)': osm }, null, { position: 'topright' }).addTo(map);
+  L.control.layers({ [T('🗺️ Map (English)')]: street, [T('🛰️ Satellite')]: sat, [T('⛰️ Terrain (hiking)')]: topo, [T('🇹🇭 OpenStreetMap (Thai names)')]: osm }, null, { position: 'topright' }).addTo(map);
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
   // Grey out neighbouring countries so Thailand stands out (sea stays clear for island hopping)
@@ -337,7 +363,7 @@
   // Active day plan (or a template preview) drawn as a numbered route
   const stopCoord = (s) => {
     if (s.place && PLACE[s.place]) return { lat: PLACE[s.place].lat, lng: PLACE[s.place].lng, name: PLACE[s.place].name };
-    if (s.lat !== null && s.lat !== undefined) return { lat: s.lat, lng: s.lng, name: s.name || 'Custom stop' };
+    if (s.lat !== null && s.lat !== undefined) return { lat: s.lat, lng: s.lng, name: s.name || T('Custom stop') };
     return null;
   };
   const activePlan = () => state.plans.find((p) => p.id === state.activePlanId) || null;
@@ -373,12 +399,12 @@
   // ── comments / threads ──────────────────────────────────────
   const repliesOf = (id) => state.notes.filter((n) => n.parentId === id).sort((a, b) => a.createdAt - b.createdAt);
 
-  function composeHtml({ placeId = '', parentId = '', lat = '', lng = '', key, placeholder = 'Write something for the family…' }) {
+  function composeHtml({ placeId = '', parentId = '', lat = '', lng = '', key, placeholder = T('Write something for the family…') }) {
     return `<form class="compose" data-compose data-place="${esc(placeId)}" data-parent="${esc(parentId)}" data-lat="${lat}" data-lng="${lng}" data-form-key="${esc(key)}">
       <textarea name="text" data-key="${esc(key)}" required maxlength="2000" rows="2" placeholder="${esc(placeholder)}"></textarea>
       <div class="compose-row">
         ${parentId ? '' : `<select name="kind" data-key="k-${esc(key)}">${Object.entries(KINDS).map(([k, [i, l]]) => `<option value="${k}">${i} ${l}</option>`).join('')}</select>`}
-        <button class="btn primary small" type="submit">${parentId ? 'Reply' : 'Post'}</button>
+        <button class="btn primary small" type="submit">${parentId ? T('Reply') : T('Post')}</button>
       </div>
     </form>`;
   }
@@ -392,11 +418,11 @@
         <div class="who">${esc(n.author)}<time>${ago(n.createdAt)}</time></div>
         <div class="txt">${esc(n.text)}</div>
         <div class="acts">
-          ${withReplies ? `<button class="icon-btn" data-act="reply" data-id="${esc(n.id)}">↩ Reply</button>` : ''}
-          ${mine ? `<button class="icon-btn" data-act="del-note" data-id="${esc(n.id)}">🗑 Delete</button>` : ''}
+          ${withReplies ? `<button class="icon-btn" data-act="reply" data-id="${esc(n.id)}">↩ ${T('Reply')}</button>` : ''}
+          ${mine ? `<button class="icon-btn" data-act="del-note" data-id="${esc(n.id)}">🗑 ${T('Delete')}</button>` : ''}
         </div>
         ${replies.length ? `<div class="replies">${replies.map((r) => commentHtml(r, false)).join('')}</div>` : ''}
-        ${withReplies && state.openReplies.has(n.id) ? composeHtml({ parentId: n.id, placeId: n.placeId || '', key: 'r-' + n.id, placeholder: 'Reply…' }) : ''}
+        ${withReplies && state.openReplies.has(n.id) ? composeHtml({ parentId: n.id, placeId: n.placeId || '', key: 'r-' + n.id, placeholder: T('Reply…') }) : ''}
       </div>
     </div>`;
   }
@@ -418,7 +444,7 @@
       $$(`[data-key="${CSS.escape(d.formKey)}"]`).forEach((t) => { t.value = ''; });
       if (body.parentId) { state.openReplies.delete(body.parentId); onNotesChanged(); }
       if (isMapNote(n)) { map.closePopup(); setMode(null); setTimeout(() => noteMarkers[n.id]?.openPopup(), 50); }
-    } catch (e) { toast('Could not post: ' + e.message); }
+    } catch (e) { toast(T('Could not post: ') + e.message); }
     finally { btn.disabled = false; }
   }
 
@@ -427,14 +453,14 @@
     const counts = {};
     PLACES.forEach((p) => { if (state.region === 'all' || p.region === state.region) counts[p.cat] = (counts[p.cat] || 0) + 1; });
     const all = state.cats.size === Object.keys(CATEGORIES).length;
-    $('#chips').innerHTML = `<button class="chip ${all ? 'on' : ''}" data-act="cat-all" style="--c:var(--ink)">All</button>` +
+    $('#chips').innerHTML = `<button class="chip ${all ? 'on' : ''}" data-act="cat-all" style="--c:var(--ink)">${T('All')}</button>` +
       Object.entries(CATEGORIES).map(([k, c]) =>
         `<button class="chip ${!all && state.cats.has(k) ? 'on' : ''}" data-act="cat" data-id="${k}" style="--c:${c.color}">${c.icon} ${c.label} <span class="n">${counts[k] || 0}</span></button>`).join('');
   }
 
   function renderList() {
     const list = PLACES.filter(matches);
-    if (!list.length) { $('#placeList').innerHTML = '<div class="empty">Nothing matches. Try another search or category.</div>'; return; }
+    if (!list.length) { $('#placeList').innerHTML = `<div class="empty">${T('Nothing matches. Try another search or category.')}</div>`; return; }
     const groups = {};
     list.forEach((p) => (groups[p.cat] ||= []).push(p));
     $('#placeList').innerHTML = Object.keys(CATEGORIES).filter((k) => groups[k]).map((k) => {
@@ -467,24 +493,24 @@
           ${p.duration ? `<span>⏱ ${esc(p.duration)}</span>` : ''}
           ${p.difficulty ? `<span>🥾 ${esc(p.difficulty)}</span>` : ''}
           ${p.price ? `<span>${PRICE[p.price]}</span>` : ''}
-          ${p.iata ? `<span>IATA ${esc(p.iata)}${p.intl ? ' · International' : ' · Domestic'}</span>` : ''}
+          ${p.iata ? `<span>IATA ${esc(p.iata)}${p.intl ? ' · ' + T('International') : ' · ' + T('Domestic')}</span>` : ''}
         </div>
         ${p.desc ? `<p>${esc(p.desc)}</p>` : ''}
-        ${p.tip ? `<p class="tip"><b>Tip:</b> ${esc(p.tip)}</p>` : ''}
+        ${p.tip ? `<p class="tip"><b>${T('Tip:')}</b> ${esc(p.tip)}</p>` : ''}
         <div class="detail-actions">
-          <select data-plan-target>${planOpts}<option value="__new">＋ New day…</option></select>
-          <button class="btn accent small" data-act="add-to-plan" data-id="${p.id}">Add to day</button>
+          <select data-plan-target>${planOpts}<option value="__new">＋ ${T('New day…')}</option></select>
+          <button class="btn accent small" data-act="add-to-plan" data-id="${p.id}">${T('Add to day')}</button>
         </div>
         <div class="detail-actions">
-          <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}">🧭 Directions</a>
-          <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' Thailand')}">⭐ Reviews & photos</a>
-          <button class="btn small" data-act="zoom" data-id="${p.id}">🔍 Zoom in</button>
-          ${p.cat !== 'airport' ? `<button class="btn small" data-act="meet-here" data-id="${p.id}">🚩 Meet here</button>` : ''}
+          <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}">🧭 ${T('Directions')}</a>
+          <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' Thailand')}">⭐ ${T('Reviews & photos')}</a>
+          <button class="btn small" data-act="zoom" data-id="${p.id}">🔍 ${T('Zoom in')}</button>
+          ${p.cat !== 'airport' ? `<button class="btn small" data-act="meet-here" data-id="${p.id}">🚩 ${T('Meet here')}</button>` : ''}
         </div>
         <div class="thread">
-          <h5>💬 Family comments ${roots.length ? `(${commentCount(p.id)})` : ''}</h5>
-          ${roots.length ? threadHtml(roots) : '<p class="muted" style="font-size:13px">No comments yet — be the first!</p>'}
-          ${composeHtml({ placeId: p.id, key: 'place-' + p.id, placeholder: `What do you think about ${p.name}?` })}
+          <h5>💬 ${T('Family comments')} ${roots.length ? `(${commentCount(p.id)})` : ''}</h5>
+          ${roots.length ? threadHtml(roots) : `<p class="muted" style="font-size:13px">${T('No comments yet — be the first!')}</p>`}
+          ${composeHtml({ placeId: p.id, key: 'place-' + p.id, placeholder: T('What do you think about {name}?', { name: p.name }) })}
         </div>`;
     });
     el.classList.remove('hidden');
@@ -514,16 +540,16 @@
     const loose = sortedPlans().filter((p) => !p.tripId);
     s.innerHTML = loose.length
       ? loose.map((p) => `<option value="${esc(p.id)}" ${p.id === state.activePlanId ? 'selected' : ''}>${p.date ? esc(p.date) + ' · ' : ''}${esc(p.name)} (${p.stops.length})</option>`).join('')
-      : '<option value="">No days planned yet</option>';
+      : `<option value="">${T('No days planned yet')}</option>`;
   }
 
   function legText(a, b) {
     const ca = stopCoord(a), cb = stopCoord(b);
     if (!ca || !cb) return '';
     const d = km(ca, cb);
-    if (d < 1.3) return `🚶 ~${Math.max(2, Math.round(d * 14))} min walk · ${(d * 1000).toFixed(0)} m`;
+    if (d < 1.3) return `🚶 ~${T('{n} min walk', { n: Math.max(2, Math.round(d * 14)) })} · ${(d * 1000).toFixed(0)} m`;
     const island = (s) => s.place && ['island', 'beach'].includes(PLACE[s.place]?.cat);
-    if (island(a) && island(b)) return `🚤 ~${d.toFixed(1)} km by boat`;
+    if (island(a) && island(b)) return `🚤 ~${T('{n} km by boat', { n: d.toFixed(1) })}`;
     return `🚕 ~${d.toFixed(1)} km`;
   }
   const totalKm = (stops) => {
@@ -536,17 +562,17 @@
     const el = $('#planEditor');
     const plan = activePlan();
     if (!plan) {
-      el.innerHTML = `<div class="plan-card empty">Create a day, pick a ready-made one below,<br/>or tap <b>Add to day</b> on any place.</div>`;
+      el.innerHTML = `<div class="plan-card empty">${T('Create a day, pick a ready-made one below,<br/>or tap <b>Add to day</b> on any place.')}</div>`;
       return;
     }
     const stops = plan.stops;
     preserve(el, () => {
       el.innerHTML = `<div class="plan-card">
         <div class="plan-head">
-          <input type="text" data-plan-field="name" data-key="pf-name" value="${esc(plan.name)}" maxlength="120" aria-label="Day name" />
+          <input type="text" data-plan-field="name" data-key="pf-name" value="${esc(plan.name)}" maxlength="120" aria-label="${T('Day name')}" />
           ${plan.tripId ? '' : `<input type="date" data-plan-field="date" data-key="pf-date" value="${esc(plan.date || '')}" aria-label="Date" />`}
         </div>
-        <div class="plan-stats"><span>📍 ${stops.length} stops</span><span>📏 ~${totalKm(stops).toFixed(1)} km</span>
+        <div class="plan-stats"><span>📍 ${T('{n} stops', { n: stops.length })}</span><span>📏 ~${totalKm(stops).toFixed(1)} km</span>
           ${plan.updatedBy ? `<span>✏️ ${esc(plan.updatedBy)}</span>` : ''}</div>
         ${stops.length ? `<ol class="stops">${stops.map((s, i) => {
           const c = stopCoord(s);
@@ -554,10 +580,10 @@
           <li class="stop">
             <div class="num">${i + 1}</div>
             <div>
-              <div class="name" data-act="goto-stop" data-idx="${i}">${esc(c?.name || 'Stop')}</div>
+              <div class="name" data-act="goto-stop" data-idx="${i}">${esc(c?.name || T('Stop'))}</div>
               <div class="row2">
                 <input type="time" data-stop-field="time" data-idx="${i}" data-key="st-time-${esc(s.id)}" value="${esc(s.time || '')}" />
-                <input type="text" data-stop-field="note" data-idx="${i}" data-key="st-note-${esc(s.id)}" value="${esc(s.note || '')}" placeholder="Note…" maxlength="500" />
+                <input type="text" data-stop-field="note" data-idx="${i}" data-key="st-note-${esc(s.id)}" value="${esc(s.note || '')}" placeholder="${T('Note…')}" maxlength="500" />
               </div>
             </div>
             <div class="ctrl">
@@ -566,13 +592,13 @@
               <button class="icon-btn" data-act="stop-del" data-idx="${i}" aria-label="Remove">✕</button>
             </div>
           </li>`;
-        }).join('')}</ol>` : '<p class="muted" style="font-size:13px">No stops yet. Open a place and tap <b>Add to day</b>, or add a custom stop on the map.</p>'}
+        }).join('')}</ol>` : `<p class="muted" style="font-size:13px">${T('No stops yet. Open a place and tap <b>Add to day</b>, or add a custom stop on the map.')}</p>`}
         <div class="plan-foot">
-          <button class="btn small" data-act="fit-plan">🗺️ Show on map</button>
-          <button class="btn small" data-act="custom-stop">📌 Custom stop</button>
-          <button class="btn small" data-act="sort-time">🕘 Sort by time</button>
-          <button class="btn small" data-act="share-plan">📤 Share as text</button>
-          ${plan.tripId ? '' : '<button class="btn small danger" data-act="del-plan">🗑 Delete day</button>'}
+          <button class="btn small" data-act="fit-plan">🗺️ ${T('Show on map')}</button>
+          <button class="btn small" data-act="custom-stop">📌 ${T('Custom stop')}</button>
+          <button class="btn small" data-act="sort-time">🕘 ${T('Sort by time')}</button>
+          <button class="btn small" data-act="share-plan">📤 ${T('Share as text')}</button>
+          ${plan.tripId ? '' : `<button class="btn small danger" data-act="del-plan">🗑 ${T('Delete day')}</button>`}
         </div>
       </div>`;
     });
@@ -585,17 +611,17 @@
       <div class="tpl">
         <b>${esc(t.name)}</b>
         <p>${esc(t.blurb)}</p>
-        <p>📍 ${t.stops.length} stops · ~${totalKm(t.stops).toFixed(0)} km</p>
+        <p>📍 ${T('{n} stops', { n: t.stops.length })} · ~${totalKm(t.stops).toFixed(0)} km</p>
         <div class="tpl-acts">
-          <button class="btn small" data-act="preview-tpl" data-id="${t.id}">${state.preview?.id === t.id ? '✕ Hide preview' : '👀 Preview'}</button>
-          <button class="btn small primary" data-act="use-tpl" data-id="${t.id}">${tripDayMode() ? '＋ Add to this day' : '＋ Use as a day'}</button>
+          <button class="btn small" data-act="preview-tpl" data-id="${t.id}">${state.preview?.id === t.id ? '✕ ' + T('Hide preview') : '👀 ' + T('Preview')}</button>
+          <button class="btn small primary" data-act="use-tpl" data-id="${t.id}">＋ ${tripDayMode() ? T('Add to this day') : T('Use as a day')}</button>
         </div>
       </div>`).join('');
   }
 
   function newPlan(fields = {}) {
     state.activeTripId = '__loose'; state.view = 'trip';
-    const plan = { id: rid(), name: `Day ${state.plans.filter((p) => !p.tripId).length + 1}`, date: '', type: '', stops: [], ...fields };
+    const plan = { id: rid(), name: T('Day {n}', { n: state.plans.filter((p) => !p.tripId).length + 1 }), date: '', type: '', stops: [], ...fields };
     state.plans.push(plan);
     setActivePlan(plan.id);
     queueSave(plan, 0);
@@ -612,13 +638,13 @@
     state.activePlanId = plan.id; state.preview = null;
     queueSave(plan, 0);
     onPlansChanged();
-    toast(`Added to “${plan.name}” ✓`);
+    toast(T('Added to “{name}” ✓', { name: plan.name }));
   }
   function planAsText(plan) {
     const lines = [`🇹🇭 ${plan.name}${plan.date ? ' — ' + plan.date : ''}`];
     plan.stops.forEach((s, i) => {
       const c = stopCoord(s);
-      lines.push(`${i + 1}. ${s.time ? s.time + ' ' : ''}${c?.name || 'Stop'}${s.note ? ' — ' + s.note : ''}`);
+      lines.push(`${i + 1}. ${s.time ? s.time + ' ' : ''}${c?.name || T('Stop')}${s.note ? ' — ' + s.note : ''}`);
       if (c) lines.push(`   https://maps.google.com/?q=${c.lat},${c.lng}`);
     });
     return lines.join('\n');
@@ -639,9 +665,9 @@
   };
   const dayDiff = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5);
   const fmtDay = (iso, o = { weekday: 'short', day: 'numeric', month: 'short' }) =>
-    (iso ? new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { ...o, timeZone: 'UTC' }) : '');
+    (iso ? new Date(iso + 'T00:00:00Z').toLocaleDateString(LOCALE, { ...o, timeZone: 'UTC' }) : '');
   const localToday = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
-  const nf = (n) => Math.round(n).toLocaleString('en-US');
+  const nf = (n) => Math.round(n).toLocaleString(LOCALE);
   const rng = (a, b, unit) => `${nf(a)}–${nf(b)} ${unit}`;
   const normIata = (c) => (c === 'DMK' ? 'BKK' : c);
   const flightOf = (trip, kind) => trip.flights.find((f) => f.kind === kind) || null;
@@ -670,7 +696,7 @@
     if (!t || !INTL_FARES.origins.includes(home)) return null;
     const high = date && HIGH_MONTHS.includes(Number(date.slice(5, 7)));
     const [lo, hi] = high ? t.high : t.low;
-    return { lo, hi, season: high ? 'high season' : 'low season' };
+    return { lo, hi, season: high ? T('high season') : T('low season') };
   }
 
   // Night-by-night: which stay you sleep at. Overnight flights land the next day.
@@ -719,7 +745,7 @@
     const d = days[idx]; if (!d) return null;
     let p = dayPlanFor(trip, d.date);
     if (!p) {
-      p = { id: rid(), name: `Day ${idx + 1}${d.base ? ' · ' + stayPlaceName(d.base) : ''}`, date: d.date, type: '', tripId: trip.id, stops: [] };
+      p = { id: rid(), name: `${T('Day {n}', { n: idx + 1 })}${d.base ? ' · ' + stayPlaceName(d.base) : ''}`, date: d.date, type: '', tripId: trip.id, stops: [] };
       state.plans.push(p); queueSave(p, 0);
     }
     return p;
@@ -728,12 +754,12 @@
     const d = km(a, b);
     const A = stayAirport(a), B = stayAirport(b);
     const fly = A && B && A !== B && d > 250 ? { from: A, to: B, fare: domFare(A, B) } : null;
-    const ground = fly && d > 700 ? '' : (b.dest && DEST[b.dest]?.transfer) || `🚕 ~${nf(d * 1.3)} km by road`;
+    const ground = fly && d > 700 ? '' : (b.dest && DEST[b.dest]?.transfer) || `🚕 ~${T('{n} km by road', { n: nf(d * 1.3) })}`;
     return { fly, ground, d };
   }
 
   // Links (no booking inside the app — these open a ready-made search)
-  const gFlights = (from, to, date, ret) => `https://www.google.com/travel/flights?hl=en&curr=SEK&q=${encodeURIComponent(`Flights from ${from} to ${to} on ${date}${ret ? ' returning ' + ret : ''}`)}`;
+  const gFlights = (from, to, date, ret) => `https://www.google.com/travel/flights?hl=${LANG}&curr=SEK&q=${encodeURIComponent(`Flights from ${from} to ${to} on ${date}${ret ? ' returning ' + ret : ''}`)}`;
   const yymmdd = (iso) => iso.slice(2).replaceAll('-', '');
   const skyscanner = (from, to, date, ret, adults) => `https://www.skyscanner.se/transport/flights/${from.toLowerCase()}/${to.toLowerCase()}/${yymmdd(date)}/${ret ? yymmdd(ret) + '/' : ''}?adults=${adults}`;
   function stayLinks(trip, s, range) {
@@ -764,7 +790,7 @@
     let price = '';
     if (f.kind === 'domestic') {
       const p = domFare(f.from, f.to);
-      if (p) price = `<span class="fare">≈ ${rng(p.lo, p.hi, '฿')}${p.rough ? ' (rough)' : ''}</span>`;
+      if (p) price = `<span class="fare">≈ ${rng(p.lo, p.hi, '฿')}${p.rough ? ' (' + T('rough') + ')' : ''}</span>`;
     }
     const ret = f.kind === 'out' ? flightOf(trip, 'home')?.date : '';
     const links = f.from && f.to && f.date && f.kind !== 'home' ? `
@@ -773,9 +799,9 @@
     return `<li class="flight ${f.kind}">
       <div><b>${f.kind === 'home' ? '🏠' : f.kind === 'out' ? '🛫' : '✈️'} ${esc(f.from || '?')} → ${esc(f.to || '?')}</b>
         ${f.flightNo ? `<span class="badge">${esc(f.flightNo)}</span>` : ''} ${price}
-        <div class="muted">${when}${f.kind === 'out' && ret ? ' · return ' + fmtDay(ret) : ''}</div>
+        <div class="muted">${when}${f.kind === 'out' && ret ? ' · ' + T('return') + ' ' + fmtDay(ret) : ''}</div>
         ${links ? `<div class="link-row">${links}</div>` : ''}</div>
-      ${f.kind === 'domestic' ? `<button class="icon-btn" data-act="del-flight" data-id="${esc(f.id)}" aria-label="Remove flight">✕</button>` : ''}
+      ${f.kind === 'domestic' ? `<button class="icon-btn" data-act="del-flight" data-id="${esc(f.id)}" aria-label="${T('Remove')}">✕</button>` : ''}
     </li>`;
   }
 
@@ -786,25 +812,25 @@
     trip.flights.filter((f) => f.kind === 'domestic').forEach((f) => { const p = domFare(f.from, f.to); if (p) { dLo += p.lo; dHi += p.hi; nDom++; } });
     const n = trip.travellers;
     const parts = [];
-    if (intl) parts.push(`<div>🌏 Return ${esc(trip.home)}–${esc(normIata(out.to))}, ${intl.season}: <b>${rng(intl.lo * n, intl.hi * n, 'SEK')}</b> <span class="muted">(${n} × ${rng(intl.lo, intl.hi, 'SEK')})</span></div>`);
-    else if (out) parts.push(`<div>🌏 No guide price from ${esc(trip.home || '?')} — use the search buttons above.</div>`);
-    if (nDom) parts.push(`<div>🇹🇭 ${nDom} domestic flight${nDom > 1 ? 's' : ''}: <b>${rng(dLo * n, dHi * n, '฿')}</b> <span class="muted">(${n} travellers)</span></div>`);
-    return `<div class="cost"><div class="cost-title">💰 Rough flight budget</div>${parts.join('')}
-      <div class="muted small-print">Guide prices only — real fares vary a lot with dates and airline.${nDom ? '' : ' Add domestic flights from the timeline to include them.'}</div></div>`;
+    if (intl) parts.push(`<div>🌏 ${T('Return')} ${esc(trip.home)}–${esc(normIata(out.to))}, ${intl.season}: <b>${rng(intl.lo * n, intl.hi * n, 'SEK')}</b> <span class="muted">(${n} × ${rng(intl.lo, intl.hi, 'SEK')})</span></div>`);
+    else if (out) parts.push(`<div>🌏 ${T('No guide price from {from} — use the search buttons above.', { from: esc(trip.home || '?') })}</div>`);
+    if (nDom) parts.push(`<div>🇹🇭 ${T(nDom > 1 ? '{n} domestic flights' : '{n} domestic flight', { n: nDom })}: <b>${rng(dLo * n, dHi * n, '฿')}</b> <span class="muted">(${T('{n} travellers', { n })})</span></div>`);
+    return `<div class="cost"><div class="cost-title">💰 ${T('Rough flight budget')}</div>${parts.join('')}
+      <div class="muted small-print">${T('Guide prices only — real fares vary a lot with dates and airline.')}${nDom ? '' : ' ' + T('Add domestic flights from the timeline to include them.')}</div></div>`;
   }
 
   function ideasListHtml(trip, s, days) {
     const { places, tpls } = ideasFor(s);
-    if (!places.length && !tpls.length) return '<p class="muted small-print">No curated places near this stop yet — try the tour links above.</p>';
-    const dayOpts = days.map((d) => `<option value="${d.i}">Day ${d.i + 1} · ${fmtDay(d.date)}</option>`).join('');
+    if (!places.length && !tpls.length) return `<p class="muted small-print">${T('No curated places near this stop yet — try the tour links above.')}</p>`;
+    const dayOpts = days.map((d) => `<option value="${d.i}">${T('Day {n}', { n: d.i + 1 })} · ${fmtDay(d.date)}</option>`).join('');
     return `<div class="ideas">
       ${places.map((p) => `<div class="idea" style="--c:${CATEGORIES[p.cat].color}">
         <span class="idea-name" data-act="select-place" data-id="${p.id}">${CATEGORIES[p.cat].icon} ${esc(p.name)}</span>
-        <select data-idea-place="${p.id}" aria-label="Add ${esc(p.name)} to a day"><option value="">＋ Day…</option>${dayOpts}</select>
+        <select data-idea-place="${p.id}" aria-label="${esc(p.name)}"><option value="">＋ ${T('Day…')}</option>${dayOpts}</select>
       </div>`).join('')}
       ${tpls.map((t) => `<div class="idea tpl-idea">
         <span class="idea-name" data-act="preview-tpl" data-id="${t.id}">📋 ${esc(t.name)}</span>
-        <select data-idea-tpl="${t.id}" aria-label="Use ${esc(t.name)} on a day"><option value="">Use on…</option>${dayOpts}</select>
+        <select data-idea-tpl="${t.id}" aria-label="${esc(t.name)}"><option value="">${T('Use on…')}</option>${dayOpts}</select>
       </div>`).join('')}
     </div>`;
   }
@@ -813,8 +839,8 @@
     const sel = $('#tripSelect');
     const loose = state.plans.filter((p) => !p.tripId);
     const opts = state.trips.map((t) => `<option value="${esc(t.id)}" ${t.id === state.activeTripId ? 'selected' : ''}>🧳 ${esc(t.name)}${t.start ? ' · ' + fmtDay(t.start, { month: 'short', year: 'numeric' }) : ''}</option>`);
-    if (loose.length || looseMode()) opts.push(`<option value="__loose" ${looseMode() ? 'selected' : ''}>📅 Loose days (${loose.length})</option>`);
-    if (!opts.length) opts.push('<option value="">No trips yet</option>');
+    if (loose.length || looseMode()) opts.push(`<option value="__loose" ${looseMode() ? 'selected' : ''}>📅 ${T('Loose days')} (${loose.length})</option>`);
+    if (!opts.length) opts.push(`<option value="">${T('No trips yet')}</option>`);
     sel.innerHTML = opts.join('');
   }
 
@@ -828,9 +854,9 @@
     el.classList.toggle('hidden', !showTrip && !welcome);
     if (welcome) {
       el.innerHTML = `<div class="plan-card empty trip-welcome">
-        <div class="big">🧳</div><b>Plan your whole trip</b>
-        <p>Enter dates and flights, add the places you’ll stay, and get a day-by-day timeline with rough flight prices and ideas for every stop.</p>
-        <button class="btn primary" data-act="new-trip">＋ Create a trip</button>
+        <div class="big">🧳</div><b>${T('Plan your whole trip')}</b>
+        <p>${T('Enter dates and flights, add the places you’ll stay, and get a day-by-day timeline with rough flight prices and ideas for every stop.')}</p>
+        <button class="btn primary" data-act="new-trip">＋ ${T('Create a trip')}</button>
       </div>`;
       return;
     }
@@ -844,21 +870,21 @@
       <div class="card trip-sum">
         <div class="trip-sum-head">
           <div><h3>${esc(trip.name)}</h3>
-            <p class="muted">${fmtDay(trip.start)} – ${fmtDay(last, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · ${trip.days} days · 👥 ${trip.travellers}</p></div>
-          <button class="icon-btn" data-act="edit-trip" aria-label="Edit trip">✏️</button>
+            <p class="muted">${fmtDay(trip.start)} – ${fmtDay(last, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · ${T('{n} days', { n: trip.days })} · 👥 ${trip.travellers}</p></div>
+          <button class="icon-btn" data-act="edit-trip" aria-label="${T('Edit trip')}">✏️</button>
         </div>
         <ul class="flights">${flights.map((f) => flightLine(trip, f)).join('')}</ul>
         ${costHtml(trip)}
         <div class="plan-foot">
-          <button class="btn small" data-act="fit-trip">🗺️ Show trip</button>
-          <button class="btn small" data-act="share-trip">📤 Share as text</button>
-          <button class="btn small danger" data-act="del-trip">🗑 Delete trip</button>
+          <button class="btn small" data-act="fit-trip">🗺️ ${T('Show trip')}</button>
+          <button class="btn small" data-act="share-trip">📤 ${T('Share as text')}</button>
+          <button class="btn small danger" data-act="del-trip">🗑 ${T('Delete trip')}</button>
         </div>
       </div>
 
       <div class="card stays-card">
-        <h3>🧳 Where you’ll stay</h3>
-        <p class="muted">${totalNights} nights in Thailand${diff > 0 ? ` · <span class="warn">⚠️ ${diff} night${diff > 1 ? 's' : ''} not planned yet</span>` : diff < 0 ? ` · <span class="warn">⚠️ ${-diff} night${diff < -1 ? 's' : ''} too many</span>` : ' · ✅ all nights planned'}</p>
+        <h3>🧳 ${T('Where you’ll stay')}</h3>
+        <p class="muted">${T('{n} nights in Thailand', { n: totalNights })}${diff > 0 ? ` · <span class="warn">⚠️ ${T(diff > 1 ? '{n} nights not planned yet' : '{n} night not planned yet', { n: diff })}</span>` : diff < 0 ? ` · <span class="warn">⚠️ ${T(diff < -1 ? '{n} nights too many' : '{n} night too many', { n: -diff })}</span>` : ` · ✅ ${T('all nights planned')}`}</p>
         <ol class="stay-list">${trip.stays.map((s, k) => {
           const r = ranges[s.id] || { from: 0, to: 0 };
           const open = state.openIdeas.has(s.id);
@@ -868,32 +894,32 @@
               <div class="stay-num">${k + 1}</div>
               <div class="stay-main">
                 <div class="stay-name" data-act="goto-stay" data-id="${esc(s.id)}">${esc(s.name)}</div>
-                <div class="muted">${r.to > r.from ? `${fmtDay(addDays(trip.start, r.from))} → ${fmtDay(addDays(trip.start, r.to))}` : 'outside the trip dates'}</div>
+                <div class="muted">${r.to > r.from ? `${fmtDay(addDays(trip.start, r.from))} → ${fmtDay(addDays(trip.start, r.to))}` : T('outside the trip dates')}</div>
               </div>
               <div class="nights">
-                <button class="icon-btn" data-act="stay-nights" data-id="${esc(s.id)}" data-d="-1" ${s.nights <= 0 ? 'disabled' : ''} aria-label="One night less">−</button>
-                <b>${s.nights}</b><span>night${s.nights === 1 ? '' : 's'}</span>
-                <button class="icon-btn" data-act="stay-nights" data-id="${esc(s.id)}" data-d="1" aria-label="One night more">＋</button>
+                <button class="icon-btn" data-act="stay-nights" data-id="${esc(s.id)}" data-d="-1" ${s.nights <= 0 ? 'disabled' : ''} aria-label="−1">−</button>
+                <b>${s.nights}</b><span>${T(s.nights === 1 ? 'night' : 'nights')}</span>
+                <button class="icon-btn" data-act="stay-nights" data-id="${esc(s.id)}" data-d="1" aria-label="+1">＋</button>
               </div>
               <div class="ctrl">
                 <button class="icon-btn" data-act="stay-move" data-id="${esc(s.id)}" data-d="-1" ${k === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
                 <button class="icon-btn" data-act="stay-move" data-id="${esc(s.id)}" data-d="1" ${k === trip.stays.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
-                <button class="icon-btn" data-act="stay-del" data-id="${esc(s.id)}" aria-label="Remove stop">✕</button>
+                <button class="icon-btn" data-act="stay-del" data-id="${esc(s.id)}" aria-label="${T('Remove')}">✕</button>
               </div>
             </div>
             ${r.to > r.from ? stayLinks(trip, s, r) : ''}
-            <button class="ideas-toggle" data-act="toggle-ideas" data-id="${esc(s.id)}">💡 Things to do near ${esc(stayPlaceName(s))} ${open ? '▴' : '▾'}</button>
+            <button class="ideas-toggle" data-act="toggle-ideas" data-id="${esc(s.id)}">💡 ${T('Things to do near {name}', { name: esc(stayPlaceName(s)) })} ${open ? '▴' : '▾'}</button>
             ${open ? ideasListHtml(trip, s, sd) : ''}
           </li>`;
         }).join('')}</ol>
-        <select data-stay-add aria-label="Add a stop">
-          <option value="">＋ Add a stop…</option>
+        <select data-stay-add aria-label="${T('Add a stop…')}">
+          <option value="">＋ ${T('Add a stop…')}</option>
           ${DESTINATIONS.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}
-          <option value="__map">📍 Pick a spot on the map…</option>
+          <option value="__map">📍 ${T('Pick a spot on the map…')}</option>
         </select>
       </div>
 
-      <h3 class="section-title">🗓️ Day by day</h3>
+      <h3 class="section-title">🗓️ ${T('Day by day')}</h3>
       <ol class="timeline">${days.map((d) => {
         const plan = dayPlanFor(trip, d.date);
         const stops = plan?.stops || [];
@@ -903,27 +929,27 @@
           const t = transferInfo(d.from, d.stay);
           const added = t.fly && trip.flights.some((f) => f.kind === 'domestic' && f.date === d.date && normIata(f.from) === t.fly.from && normIata(f.to) === t.fly.to);
           move = `<div class="tl-move">🔁 ${esc(stayPlaceName(d.from))} → ${esc(stayPlaceName(d.stay))} <span class="muted">· ~${nf(t.d)} km</span></div>
-            ${t.fly && !added ? `<div class="tl-hint">✈️ ${t.fly.from}→${t.fly.to}${t.fly.fare ? ` ≈ ${rng(t.fly.fare.lo, t.fly.fare.hi, '฿')} pp` : ''}
-              <button class="btn tiny" data-act="add-dom-flight" data-idx="${d.i}">＋ Add flight</button></div>` : ''}
-            ${t.ground && (!t.fly || !added) ? `<div class="tl-hint">${t.fly ? 'or ' : ''}${esc(t.ground)}</div>` : ''}`;
+            ${t.fly && !added ? `<div class="tl-hint">✈️ ${t.fly.from}→${t.fly.to}${t.fly.fare ? ` ≈ ${rng(t.fly.fare.lo, t.fly.fare.hi, '฿')} ${T('pp')}` : ''}
+              <button class="btn tiny" data-act="add-dom-flight" data-idx="${d.i}">＋ ${T('Add flight')}</button></div>` : ''}
+            ${t.ground && (!t.fly || !added) ? `<div class="tl-hint">${t.fly ? T('or') + ' ' : ''}${esc(t.ground)}</div>` : ''}`;
         }
         if (d.hop) {
           const added = trip.flights.some((f) => f.kind === 'domestic' && f.date === d.date && normIata(f.from) === d.hop.from && normIata(f.to) === d.hop.to);
           const fare = domFare(d.hop.from, d.hop.to);
-          if (!added) move += `<div class="tl-hint">🔗 Connection ${d.hop.from}→${d.hop.to}${fare ? ` ≈ ${rng(fare.lo, fare.hi, '฿')} pp` : ''}
-            <button class="btn tiny" data-act="add-dom-flight" data-idx="${d.i}" data-hop="1">＋ Add flight</button></div>`;
+          if (!added) move += `<div class="tl-hint">🔗 ${T('Connection')} ${d.hop.from}→${d.hop.to}${fare ? ` ≈ ${rng(fare.lo, fare.hi, '฿')} ${T('pp')}` : ''}
+            <button class="btn tiny" data-act="add-dom-flight" data-idx="${d.i}" data-hop="1">＋ ${T('Add flight')}</button></div>`;
         }
         const fl = d.flights.map((f) => `<div class="tl-flight">${f.kind === 'home' ? '🏠' : '🛫'} ${esc(f.from)}→${esc(f.to)}${f.dep ? ' ' + esc(f.dep) : ''}${f.flightNo ? ' · ' + esc(f.flightNo) : ''}</div>`).join('')
-          + d.arrivals.map((f) => `<div class="tl-flight">🛬 Land ${esc(f.to)}${f.arr ? ' ' + esc(f.arr) : ''}</div>`).join('');
-        const title = d.inAir ? '✈️ On the way to Thailand' : d.base ? esc(stayPlaceName(d.base)) : '<span class="warn">No stop planned</span>';
+          + d.arrivals.map((f) => `<div class="tl-flight">🛬 ${T('Land')} ${esc(f.to)}${f.arr ? ' ' + esc(f.arr) : ''}</div>`).join('');
+        const title = d.inAir ? '✈️ ' + T('On the way to Thailand') : d.base ? esc(stayPlaceName(d.base)) : `<span class="warn">${T('No stop planned')}</span>`;
         return `<li class="tl-day ${d.from ? 'travel' : ''} ${d.date === today ? 'today' : ''}" style="--c:${c}" data-act="open-day" data-idx="${d.i}" tabindex="0">
           <div class="tl-date"><span>${fmtDay(d.date, { weekday: 'short' })}</span><b>${fmtDay(d.date, { day: 'numeric' })}</b><span>${fmtDay(d.date, { month: 'short' })}</span></div>
           <div class="tl-body">
-            <div class="tl-title"><span class="tl-n">Day ${d.i + 1}</span> ${title}</div>
+            <div class="tl-title"><span class="tl-n">${T('Day {n}', { n: d.i + 1 })}</span> ${title}</div>
             ${fl}${move}
             <div class="tl-acts">${stops.length
-              ? stops.slice(0, 4).map((s) => `${s.time ? `<b>${esc(s.time)}</b> ` : ''}${esc(stopCoord(s)?.name || 'Stop')}`).join(' · ') + (stops.length > 4 ? ` · +${stops.length - 4} more` : '')
-              : `<span class="muted">${d.inAir ? '' : 'Tap to plan this day'}</span>`}</div>
+              ? stops.slice(0, 4).map((s) => `${s.time ? `<b>${esc(s.time)}</b> ` : ''}${esc(stopCoord(s)?.name || T('Stop'))}`).join(' · ') + (stops.length > 4 ? ` · ${T('+{n} more', { n: stops.length - 4 })}` : '')
+              : `<span class="muted">${d.inAir ? '' : T('Tap to plan this day')}</span>`}</div>
           </div>
         </li>`;
       }).join('')}</ol>`;
@@ -938,14 +964,14 @@
     const idx = dayDiff(trip.start, plan.date);
     const d = days[idx];
     el.innerHTML = `<div class="day-head">
-      <button class="btn small" data-act="back-timeline">← Timeline</button>
+      <button class="btn small" data-act="back-timeline">← ${T('Timeline')}</button>
       <div class="day-nav">
-        <button class="icon-btn" data-act="day-step" data-d="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="Previous day">‹</button>
-        <b>Day ${idx + 1} · ${fmtDay(plan.date)}</b>
-        <button class="icon-btn" data-act="day-step" data-d="1" ${idx >= trip.days - 1 ? 'disabled' : ''} aria-label="Next day">›</button>
+        <button class="icon-btn" data-act="day-step" data-d="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="${T('Previous day')}">‹</button>
+        <b>${T('Day {n}', { n: idx + 1 })} · ${fmtDay(plan.date)}</b>
+        <button class="icon-btn" data-act="day-step" data-d="1" ${idx >= trip.days - 1 ? 'disabled' : ''} aria-label="${T('Next day')}">›</button>
       </div>
     </div>
-    ${d?.from && d.stay ? `<div class="day-note">🔁 Travel day: ${esc(stayPlaceName(d.from))} → ${esc(stayPlaceName(d.stay))}</div>` : ''}
+    ${d?.from && d.stay ? `<div class="day-note">🔁 ${T('Travel day:')} ${esc(stayPlaceName(d.from))} → ${esc(stayPlaceName(d.stay))}</div>` : ''}
     ${d?.flights.length ? `<div class="day-note">${d.flights.map((f) => `✈️ ${esc(f.from)}→${esc(f.to)}${f.dep ? ' ' + esc(f.dep) : ''}`).join(' · ')}</div>` : ''}`;
     // Ideas for the place you’re staying that day
     const s = d?.base;
@@ -954,16 +980,16 @@
     const inDay = new Set(plan.stops.map((x) => x.place));
     const r = tripDays(trip).ranges[s.id];
     $('#dayIdeas').innerHTML = `<div class="card day-ideas">
-      <h3>💡 Ideas near ${esc(stayPlaceName(s))}</h3>
+      <h3>💡 ${T('Ideas near {name}', { name: esc(stayPlaceName(s)) })}</h3>
       ${r ? stayLinks(trip, s, r) : ''}
       <div class="ideas">
         ${places.map((p) => `<div class="idea" style="--c:${CATEGORIES[p.cat].color}">
           <span class="idea-name" data-act="select-place" data-id="${p.id}">${CATEGORIES[p.cat].icon} ${esc(p.name)}</span>
-          ${inDay.has(p.id) ? '<span class="muted">✓ added</span>' : `<button class="btn tiny" data-act="add-idea-here" data-id="${p.id}">＋ Add</button>`}
+          ${inDay.has(p.id) ? `<span class="muted">✓ ${T('added')}</span>` : `<button class="btn tiny" data-act="add-idea-here" data-id="${p.id}">＋ ${T('Add')}</button>`}
         </div>`).join('')}
         ${tpls.map((t) => `<div class="idea tpl-idea">
           <span class="idea-name" data-act="preview-tpl" data-id="${t.id}">📋 ${esc(t.name)}</span>
-          <button class="btn tiny" data-act="use-tpl" data-id="${t.id}">＋ Use</button>
+          <button class="btn tiny" data-act="use-tpl" data-id="${t.id}">＋ ${T('Use')}</button>
         </div>`).join('')}
       </div>
     </div>`;
@@ -981,7 +1007,7 @@
         zIndexOffset: 1000,
         icon: L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
           html: `<div class="stay-pin" style="--c:${stayColor(trip, s)}">${k + 1}</div>` }),
-      }).bindTooltip(`${esc(s.name)} · ${s.nights} night${s.nights === 1 ? '' : 's'}`, { direction: 'top', offset: [0, -14] })
+      }).bindTooltip(`${esc(s.name)} · ${s.nights} ${T(s.nights === 1 ? 'night' : 'nights')}`, { direction: 'top', offset: [0, -14] })
         .on('click', () => { state.openIdeas.add(s.id); switchTab('plan'); renderTripView(); })
         .addTo(planLayer);
     });
@@ -995,17 +1021,17 @@
 
   function tripAsText(trip) {
     const { days } = tripDays(trip);
-    const lines = [`🇹🇭 ${trip.name} — ${fmtDay(trip.start)} → ${fmtDay(addDays(trip.start, trip.days - 1))} (${trip.days} days)`];
-    trip.stays.forEach((s) => lines.push(`🧳 ${s.name}: ${s.nights} night${s.nights === 1 ? '' : 's'}`));
+    const lines = [`🇹🇭 ${trip.name} — ${fmtDay(trip.start)} → ${fmtDay(addDays(trip.start, trip.days - 1))} (${T('{n} days', { n: trip.days })})`];
+    trip.stays.forEach((s) => lines.push(`🧳 ${s.name}: ${s.nights} ${T(s.nights === 1 ? 'night' : 'nights')}`));
     lines.push('');
     days.forEach((d) => {
       const plan = dayPlanFor(trip, d.date);
       const bits = [
         ...d.flights.map((f) => `✈️ ${f.from}→${f.to}${f.dep ? ' ' + f.dep : ''}${f.flightNo ? ' ' + f.flightNo : ''}`),
         d.from && d.stay ? `🔁 ${stayPlaceName(d.from)} → ${stayPlaceName(d.stay)}` : '',
-        ...(plan?.stops || []).map((s) => `${s.time ? s.time + ' ' : ''}${stopCoord(s)?.name || 'Stop'}`),
+        ...(plan?.stops || []).map((s) => `${s.time ? s.time + ' ' : ''}${stopCoord(s)?.name || T('Stop')}`),
       ].filter(Boolean);
-      lines.push(`${fmtDay(d.date)} · Day ${d.i + 1}${d.base ? ' · ' + stayPlaceName(d.base) : ''}${bits.length ? '\n   ' + bits.join('\n   ') : ''}`);
+      lines.push(`${fmtDay(d.date)} · ${T('Day {n}', { n: d.i + 1 })}${d.base ? ' · ' + stayPlaceName(d.base) : ''}${bits.length ? '\n   ' + bits.join('\n   ') : ''}`);
     });
     return lines.join('\n');
   }
@@ -1038,14 +1064,14 @@
     }
     trip.stays.push({ id: rid(), nights, ...st });
     saveTrip(trip);
-    toast(`${st.name} added — ${nights} night${nights === 1 ? '' : 's'}`);
+    toast(T('{name} added — {n} {nights}', { name: st.name, n: nights, nights: T(nights === 1 ? 'night' : 'nights') }));
   }
   async function deleteTrip(trip) {
     for (const p of state.plans.filter((x) => x.tripId === trip.id)) await deletePlan(p.id);
     clearTimeout(saveTimers[trip.id]); dirty.delete(trip.id);
     state.trips = state.trips.filter((t) => t.id !== trip.id);
     if (!state.online) persistLocal();
-    else try { await req('DELETE', '/trips/' + trip.id); } catch (e) { toast('Could not delete: ' + e.message); }
+    else try { await req('DELETE', '/trips/' + trip.id); } catch (e) { toast(T('Could not delete: ') + e.message); }
     setActiveTrip(state.trips[0]?.id || (state.plans.some((p) => !p.tripId) ? '__loose' : null));
   }
 
@@ -1057,8 +1083,8 @@
     const intl = AIRPORTS.filter((a) => a.intl);
     const opt = (sel) => intl.map((a) => `<option value="${a.iata}" ${a.iata === sel ? 'selected' : ''}>${a.iata} · ${esc(a.name.replace(/\s*\([A-Z]{3}\)$/, ''))}</option>`).join('');
     const out = trip && flightOf(trip, 'out'), home = trip && flightOf(trip, 'home');
-    $('#tripDialogTitle').textContent = trip ? 'Edit trip' : 'New trip';
-    $('#tripSubmit').textContent = trip ? 'Save' : 'Create trip';
+    $('#tripDialogTitle').textContent = trip ? T('Edit trip') : T('New trip');
+    $('#tripSubmit').textContent = trip ? T('Save') : T('Create trip');
     f.name.value = trip?.name || '';
     f.start.value = trip?.start || '';
     f.days.value = trip?.days || 14;
@@ -1080,7 +1106,7 @@
     const old = editingTripId && state.trips.find((t) => t.id === editingTripId);
     const trip = old || { id: rid(), stays: [], flights: [] };
     const prevStart = trip.start;
-    trip.name = f.name.value.trim().slice(0, 120) || 'Our trip';
+    trip.name = f.name.value.trim().slice(0, 120) || T('Our trip');
     trip.start = f.start.value;
     trip.days = Math.max(1, Math.min(120, Number(f.days.value) || 14));
     trip.travellers = Math.max(1, Math.min(20, Number(f.travellers.value) || 2));
@@ -1105,7 +1131,7 @@
     queueSave(trip, 0, 'trips');
     setActiveTrip(trip.id);
     switchTab('plan');
-    toast(old ? 'Trip updated ✓' : `“${trip.name}” created — add your stops 🧳`);
+    toast(old ? T('Trip updated ✓') : T('“{name}” created — add your stops 🧳', { name: trip.name }));
   });
 
   // "Add to day" choices: every day of the active trip (preselect the day you’re near), then loose days
@@ -1117,10 +1143,10 @@
       const cur = tripDayMode() ? dayDiff(tr.start, activePlan().date) : -1;
       let pick = cur;
       if (pick < 0) { const near = days.find((d) => d.base && d.base.lat != null && !d.inAir && km(d.base, place) < 40); pick = near ? near.i : -1; }
-      html += `<optgroup label="${esc(tr.name)}">${days.map((d) => `<option value="t|${esc(tr.id)}|${d.i}" ${d.i === pick ? 'selected' : ''}>Day ${d.i + 1} · ${fmtDay(d.date)}${d.base ? ' · ' + esc(stayPlaceName(d.base)) : ''}</option>`).join('')}</optgroup>`;
+      html += `<optgroup label="${esc(tr.name)}">${days.map((d) => `<option value="t|${esc(tr.id)}|${d.i}" ${d.i === pick ? 'selected' : ''}>${T('Day {n}', { n: d.i + 1 })} · ${fmtDay(d.date)}${d.base ? ' · ' + esc(stayPlaceName(d.base)) : ''}</option>`).join('')}</optgroup>`;
     }
     const loose = state.plans.filter((p) => !p.tripId);
-    if (loose.length) html += `<optgroup label="Loose days">${loose.map((pl) => `<option value="${esc(pl.id)}" ${!tr && pl.id === state.activePlanId ? 'selected' : ''}>${esc(pl.name)}</option>`).join('')}</optgroup>`;
+    if (loose.length) html += `<optgroup label="${T('Loose days')}">${loose.map((pl) => `<option value="${esc(pl.id)}" ${!tr && pl.id === state.activePlanId ? 'selected' : ''}>${esc(pl.name)}</option>`).join('')}</optgroup>`;
     return html;
   }
 
@@ -1137,18 +1163,18 @@
   function renderFamily() {
     const card = $('#familyCard');
     if (!state.family || !state.me) {
-      card.innerHTML = `<h3>Plan together 👨‍👩‍👧‍👦</h3>
-        <p class="muted" style="font-size:14px">Join a family with a shared code to comment on places, drop notes on the map and build day plans together — live.</p>
-        <button class="btn primary" data-act="open-join">Join or create a family</button>`;
+      card.innerHTML = `<h3>${T('Plan together')} 👨‍👩‍👧‍👦</h3>
+        <p class="muted" style="font-size:14px">${T('Join a family with a shared code to comment on places, drop notes on the map and build day plans together — live.')}</p>
+        <button class="btn primary" data-act="open-join">${T('Join or create a family')}</button>`;
     } else {
       const local = /^(localhost|127\.)/.test(location.hostname);
       card.innerHTML = `<h3>${esc(state.family)}</h3>
-        <p style="font-size:14px;margin:0">You are <b style="color:${esc(state.me.color)}">${esc(state.me.name)}</b>
-          · ${state.online ? '<span style="color:var(--teal)">● live</span>' : '<span style="color:var(--saffron)">● this device only</span>'}</p>
+        <p style="font-size:14px;margin:0">${T('You are')} <b style="color:${esc(state.me.color)}">${esc(state.me.name)}</b>
+          · ${state.online ? `<span style="color:var(--teal)">● ${T('live')}</span>` : `<span style="color:var(--saffron)">● ${T('this device only')}</span>`}</p>
         <div class="members">${members().map(([n, c]) => `<span class="member">${avatar(n, c)}${esc(n)}</span>`).join('')}</div>
-        <div class="invite"><input readonly id="inviteInput" value="${esc(inviteLink())}" /><button class="btn small" data-act="copy-invite">Copy invite</button></div>
-        ${local ? '<p class="muted" style="font-size:12px;margin:8px 0 0">This is a localhost link — family on the same Wi-Fi should use the network address shown in the terminal, or deploy the server (see README).</p>' : ''}
-        <div style="margin-top:10px"><button class="btn small ghost" data-act="open-join">Change name / family</button></div>`;
+        <div class="invite"><input readonly id="inviteInput" value="${esc(inviteLink())}" /><button class="btn small" data-act="copy-invite">${T('Copy invite')}</button></div>
+        ${local ? `<p class="muted" style="font-size:12px;margin:8px 0 0">${T('This is a localhost link — family on the same Wi-Fi should use the network address shown in the terminal, or deploy the server (see README).')}</p>` : ''}
+        <div style="margin-top:10px"><button class="btn small ghost" data-act="open-join">${T('Change name / family')}</button></div>`;
     }
     renderFeed();
     renderLive();
@@ -1158,12 +1184,12 @@
     const items = [...state.notes].sort((a, b) => b.createdAt - a.createdAt).slice(0, 80);
     $('#feed').innerHTML = items.length ? items.map((n) => {
       const root = n.parentId ? state.notes.find((x) => x.id === n.parentId) : null;
-      const where = n.placeId ? `📍 ${PLACE[n.placeId]?.name || 'a place'}` : root ? `↩ reply to ${root.author}` : '📌 Note on the map';
+      const where = n.placeId ? `📍 ${PLACE[n.placeId]?.name || T('a place')}` : root ? `↩ ${T('reply to {who}', { who: root.author })}` : `📌 ${T('Note on the map')}`;
       return `<div class="comment kind-${esc(n.kind)}" data-act="goto-note" data-id="${esc(n.id)}">
         ${avatar(n.author, n.color)}
         <div class="body"><div class="who">${esc(n.author)}<time>${ago(n.createdAt)}</time></div>
         <div class="where">${esc(where)}</div><div class="txt">${esc(n.text)}</div></div></div>`;
-    }).join('') : '<div class="empty">No comments yet.<br/>Tap 📍 Note on the map, or comment on any place.</div>';
+    }).join('') : `<div class="empty">${T('No comments yet.<br/>Tap 📍 Note on the map, or comment on any place.')}</div>`;
     updateUnread();
   }
   function updateUnread() {
@@ -1172,8 +1198,8 @@
   }
   function renderBadge() {
     $('#familyBadge').innerHTML = state.family && state.me
-      ? `${esc(state.me.name)} · family <b>${esc(state.family)}</b> ${state.online ? '🟢' : '🟠'}`
-      : 'Tap to join your family →';
+      ? `${esc(state.me.name)} · ${T('family')} <b>${esc(state.family)}</b> ${state.online ? '🟢' : '🟠'}`
+      : T('Tap to join your family →');
   }
 
   function gotoNote(id) {
@@ -1193,12 +1219,12 @@
     const params = new URLSearchParams(location.search);
     $('#joinName').value = state.me?.name || '';
     $('#joinCode').value = params.get('family') || state.family || '';
-    $('#colorRow').innerHTML = COLORS.map((c) => `<button type="button" data-color="${c}" class="${c === pickedColor ? 'on' : ''}" style="background:${c}" aria-label="Colour ${c}"></button>`).join('');
+    $('#colorRow').innerHTML = COLORS.map((c) => `<button type="button" data-color="${c}" class="${c === pickedColor ? 'on' : ''}" style="background:${c}" aria-label="${T('Colour')} ${c}"></button>`).join('');
     $('#joinDialog').showModal();
   }
   function ensureMe() {
     if (state.me) return true;
-    toast('Tell us who you are first 🙂'); openJoin(); return false;
+    toast(T('Tell us who you are first 🙂')); openJoin(); return false;
   }
   $('#colorRow').addEventListener('click', (e) => {
     const b = e.target.closest('[data-color]'); if (!b) return;
@@ -1220,7 +1246,7 @@
     LS.set('me', state.me); LS.set('family', code);
     history.replaceState(null, '', `?family=${encodeURIComponent(code)}`);
     if (changedFamily) connect(); else renderAll();
-    toast(`Welcome, ${name}! 🙏`);
+    toast(T('Welcome, {name}! 🙏', { name }));
   });
 
   // ── tabs, modes, sheet ──────────────────────────────────────
@@ -1240,8 +1266,8 @@
     $('#meetBtn').classList.toggle('active', mode === 'meet');
     const b = $('#modeBanner');
     if (!mode) { b.classList.add('hidden'); return; }
-    b.innerHTML = (mode === 'note' ? '📍 Tap anywhere on the map to drop a family note' : mode === 'meet' ? '🚩 Tap the map where everyone should meet' : mode === 'stay' ? '🧳 Tap the map where you’ll stay' : `📌 Tap the map to add a custom stop to “${esc(activePlan()?.name || 'a new day')}”`) +
-      ' <button data-act="cancel-mode">Cancel</button>';
+    b.innerHTML = (mode === 'note' ? T('📍 Tap anywhere on the map to drop a family note') : mode === 'meet' ? T('🚩 Tap the map where everyone should meet') : mode === 'stay' ? T('🧳 Tap the map where you’ll stay') : T('📌 Tap the map to add a custom stop to “{name}”', { name: esc(activePlan()?.name || T('a new day')) })) +
+      ` <button data-act="cancel-mode">${T('Cancel')}</button>`;
     b.classList.remove('hidden');
   }
 
@@ -1261,7 +1287,7 @@
     if (state.mode === 'note') {
       if (!ensureMe()) return;
       L.popup({ minWidth: 250 }).setLatLng(e.latlng).setContent(
-        `<div class="popup"><h4>📍 New family note</h4>${composeHtml({ lat: lat.toFixed(6), lng: lng.toFixed(6), key: 'new-note', placeholder: 'e.g. “Great ice cream here!” or “Meet here at 6 pm”' })}</div>`,
+        `<div class="popup"><h4>📍 ${T('New family note')}</h4>${composeHtml({ lat: lat.toFixed(6), lng: lng.toFixed(6), key: 'new-note', placeholder: T('e.g. “Great ice cream here!” or “Meet here at 6 pm”') })}</div>`,
       ).openOn(map);
       setTimeout(() => $('[data-key="new-note"]')?.focus(), 50);
     } else if (state.mode === 'meet') {
@@ -1269,18 +1295,18 @@
     } else if (state.mode === 'stay') {
       L.popup({ minWidth: 230 }).setLatLng(e.latlng).setContent(
         `<form class="popup compose" data-staymap data-lat="${lat.toFixed(6)}" data-lng="${lng.toFixed(6)}">
-          <h4>🧳 New stop</h4>
-          <input name="name" required maxlength="80" placeholder="Name, e.g. Koh Kood" />
-          <div class="compose-row"><span></span><button class="btn primary small" type="submit">Add stop</button></div>
+          <h4>🧳 ${T('New stop')}</h4>
+          <input name="name" required maxlength="80" placeholder="${T('Name, e.g. Koh Kood')}" />
+          <div class="compose-row"><span></span><button class="btn primary small" type="submit">${T('Add stop')}</button></div>
         </form>`,
       ).openOn(map);
       setTimeout(() => $('[data-staymap] input')?.focus(), 50);
     } else if (state.mode === 'stop') {
       L.popup({ minWidth: 230 }).setLatLng(e.latlng).setContent(
         `<form class="popup compose" data-customstop data-lat="${lat.toFixed(6)}" data-lng="${lng.toFixed(6)}">
-          <h4>📌 Custom stop</h4>
-          <input name="name" required maxlength="120" placeholder="Name, e.g. Our hotel" />
-          <div class="compose-row"><input name="time" type="time" /><button class="btn primary small" type="submit">Add</button></div>
+          <h4>📌 ${T('Custom stop')}</h4>
+          <input name="name" required maxlength="120" placeholder="${T('Name, e.g. Our hotel')}" />
+          <div class="compose-row"><input name="time" type="time" /><button class="btn primary small" type="submit">${T('Add')}</button></div>
         </form>`,
       ).openOn(map);
       setTimeout(() => $('[data-customstop] input')?.focus(), 50);
@@ -1313,14 +1339,14 @@
           const [, tid, i] = target.split('|');
           const tr = state.trips.find((x) => x.id === tid);
           const dp = tr && ensureDayPlan(tr, Number(i));
-          if (dp) { dp.stops.push({ id: rid(), time: '', note: '', place: id }); queueSave(dp, 0); onPlansChanged(); toast(`Added to ${dp.name} ✓`); }
+          if (dp) { dp.stops.push({ id: rid(), time: '', note: '', place: id }); queueSave(dp, 0); onPlansChanged(); toast(T('Added to “{name}” ✓', { name: dp.name })); }
         } else addStop(target, { place: id });
         break;
       }
       case 'new-trip': openTripDialog(); break;
       case 'edit-trip': if (activeTrip()) openTripDialog(activeTrip()); break;
       case 'close-trip-dialog': $('#tripDialog').close(); break;
-      case 'del-trip': if (activeTrip() && armed(t)) { const n = activeTrip().name; await deleteTrip(activeTrip()); toast(`“${n}” deleted`); } break;
+      case 'del-trip': if (activeTrip() && armed(t)) { const n = activeTrip().name; await deleteTrip(activeTrip()); toast(T('“{name}” deleted', { name: n })); } break;
       case 'share-trip': if (activeTrip()) share(tripAsText(activeTrip())); break;
       case 'fit-trip': if (activeTrip()) { fitTrip(activeTrip()); if (window.innerWidth <= 760) setSheet('collapsed'); } break;
       case 'open-day': if (activeTrip()) openDay(activeTrip(), idx); break;
@@ -1347,7 +1373,7 @@
         const leg = t.dataset.hop ? d.hop : d.from && d.stay ? transferInfo(d.from, d.stay).fly : null;
         if (!leg) break;
         tr.flights.push({ id: rid(), kind: 'domestic', from: leg.from, to: leg.to, date: d.date, dep: '', arr: '', flightNo: '', note: '' });
-        saveTrip(tr); toast(`✈️ ${leg.from}→${leg.to} added to the budget`);
+        saveTrip(tr); toast(T('✈️ {route} added to the budget', { route: `${leg.from}→${leg.to}` }));
         break;
       }
       case 'del-flight': {
@@ -1355,7 +1381,7 @@
         tr.flights = tr.flights.filter((f) => f.id !== id); saveTrip(tr); break;
       }
       case 'add-idea-here':
-        if (plan) { plan.stops.push({ id: rid(), time: '', note: '', place: id }); queueSave(plan, 0); onPlansChanged(); toast(`${PLACE[id]?.name} added ✓`); }
+        if (plan) { plan.stops.push({ id: rid(), time: '', note: '', place: id }); queueSave(plan, 0); onPlansChanged(); toast(T('{name} added ✓', { name: PLACE[id]?.name })); }
         break;
       case 'reply':
         if (!ensureMe()) break;
@@ -1365,11 +1391,11 @@
         break;
       case 'del-note':
         if (!armed(t)) break;
-        try { await deleteNote(id); toast('Deleted'); } catch (err) { toast('Could not delete: ' + err.message); }
+        try { await deleteNote(id); toast(T('Deleted')); } catch (err) { toast(T('Could not delete: ') + err.message); }
         break;
       case 'goto-note': gotoNote(id); break;
       case 'open-join': openJoin(); break;
-      case 'copy-invite': copy(inviteLink(), 'Invite link copied — send it to the family!'); break;
+      case 'copy-invite': copy(inviteLink(), T('Invite link copied — send it to the family!')); break;
       case 'cancel-mode': setMode(null); map.closePopup(); break;
       case 'tpl-type': state.tplType = id; renderTemplates(); break;
       case 'preview-tpl': {
@@ -1384,10 +1410,10 @@
         if (tripDayMode() && plan) {
           plan.stops.push(...tpl.stops.map((s) => ({ id: rid(), place: s.place, time: s.time, note: s.note })));
           state.preview = null; queueSave(plan, 0); onPlansChanged(); fitStops(plan.stops);
-          toast(`“${tpl.name}” added to ${plan.name} ✓`); break;
+          toast(T('“{tpl}” added to {name} ✓', { tpl: tpl.name, name: plan.name })); break;
         }
         const p = newPlan({ name: tpl.name, type: tpl.type, stops: tpl.stops.map((s) => ({ id: rid(), place: s.place, time: s.time, note: s.note })) });
-        fitStops(p.stops); toast(`“${tpl.name}” added to your days ✓`);
+        fitStops(p.stops); toast(T('“{tpl}” added to your days ✓', { tpl: tpl.name }));
         $('#tab-plan').scrollTop = 0;
         break;
       }
@@ -1422,7 +1448,7 @@
       case 'del-meetup':
         if (!armed(t)) break;
         try { await req('DELETE', '/meetups/' + encodeURIComponent(id)); state.meetups = state.meetups.filter((m) => m.id !== id); map.closePopup(); renderMeetups(); renderLive(); }
-        catch (err) { toast('Could not remove: ' + err.message); }
+        catch (err) { toast(T('Could not remove: ') + err.message); }
         break;
       case 'share-meetup': {
         const m = state.meetups.find((x) => x.id === id);
@@ -1443,7 +1469,7 @@
         break;
       }
       case 'fit-family': fitFamily(); if (window.innerWidth <= 760) setSheet('collapsed'); break;
-      case 'del-plan': if (plan && armed(t)) { await deletePlan(plan.id); toast('Day deleted'); } break;
+      case 'del-plan': if (plan && armed(t)) { await deletePlan(plan.id); toast(T('Day deleted')); } break;
     }
   });
 
@@ -1454,7 +1480,7 @@
     else if (f.matches('[data-staymap]')) {
       e.preventDefault();
       const tr = activeTrip();
-      if (tr) addStay(tr, { dest: null, name: f.name.value.trim().slice(0, 80) || 'Stop', lat: Number(f.dataset.lat), lng: Number(f.dataset.lng) });
+      if (tr) addStay(tr, { dest: null, name: f.name.value.trim().slice(0, 80) || T('Stop'), lat: Number(f.dataset.lat), lng: Number(f.dataset.lng) });
       map.closePopup(); setMode(null); switchTab('plan'); if (window.innerWidth <= 760) setSheet('');
     }
     else if (f.matches('[data-customstop]')) {
@@ -1505,7 +1531,7 @@
       queueSave(dp, 0); onPlansChanged(); toast(`“${tpl.name}” → ${dp.name} ✓`);
     }
   });
-  $('#newPlanBtn').addEventListener('click', () => { newPlan(); toast('New day created — add places to it'); });
+  $('#newPlanBtn').addEventListener('click', () => { newPlan(); toast(T('New day created — add places to it')); });
 
   let searchT;
   $('#search').addEventListener('input', (e) => {
@@ -1525,20 +1551,20 @@
   $('#familyBtn').addEventListener('click', fitFamily);
   $('#meetBtn').addEventListener('click', () => { if (!ensureMe()) return; setMode(state.mode === 'meet' ? null : 'meet'); });
   $('#locateBtn').addEventListener('click', () => {
-    if (!navigator.geolocation) return toast('Location not available in this browser');
+    if (!navigator.geolocation) return toast(T('Location is not available in this browser'));
     navigator.geolocation.getCurrentPosition((pos) => {
       const ll = [pos.coords.latitude, pos.coords.longitude];
-      if (!TH_BOUNDS.pad(0.1).contains(ll)) return toast('You’re outside Thailand — see you there soon! ✈️');
+      if (!TH_BOUNDS.pad(0.1).contains(ll)) return toast(T('You’re outside Thailand — see you there soon! ✈️'));
       if (meMarker) meMarker.remove();
-      meMarker = L.circleMarker(ll, { radius: 9, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }).addTo(map).bindTooltip('You are here');
+      meMarker = L.circleMarker(ll, { radius: 9, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }).addTo(map).bindTooltip(T('You are here'));
       map.flyTo(ll, 15);
-    }, () => toast('Could not get your location (it needs https or localhost)'), { enableHighAccuracy: true, timeout: 10000 });
+    }, () => toast(T('Could not get your location (it needs https or localhost)')), { enableHighAccuracy: true, timeout: 10000 });
   });
   $('#familyBadge').addEventListener('click', openJoin);
 
   function armed(btn) {
     if (btn.dataset.armed) return true;
-    const old = btn.textContent; btn.dataset.armed = '1'; btn.textContent = 'Tap again to confirm';
+    const old = btn.textContent; btn.dataset.armed = '1'; btn.textContent = T('Tap again to confirm');
     setTimeout(() => { if (btn.isConnected) { btn.textContent = old; delete btn.dataset.armed; } }, 2500);
     return false;
   }
@@ -1546,13 +1572,13 @@
     try { await navigator.clipboard.writeText(text); toast(msg); }
     catch {
       const ta = document.createElement('textarea'); ta.value = text; document.body.append(ta); ta.select();
-      try { document.execCommand('copy'); toast(msg); } catch { toast('Copy failed — select the text manually'); }
+      try { document.execCommand('copy'); toast(msg); } catch { toast(T('Copy failed — select the text manually')); }
       ta.remove();
     }
   }
   async function share(text) {
     if (navigator.share) { try { await navigator.share({ text }); return; } catch { /* cancelled */ } }
-    copy(text, 'Day plan copied — paste it in WhatsApp/Messenger');
+    copy(text, T('Copied — paste it in WhatsApp/Messenger'));
   }
 
   // ── live locations & meetup points ──────────────────────────
@@ -1562,7 +1588,7 @@
   const memberMarkers = {};
   const meetupMarkers = {};
   const STALE = 10 * 60e3;
-  const STATUS = { coming: ['🚶', 'On my way'], late: ['⏰', 'Running late'], here: ['✅', 'I’m here'], cant: ['❌', 'Can’t make it'] };
+  const STATUS = { coming: ['🚶', T('On my way')], late: ['⏰', T('Running late')], here: ['✅', T('I’m here')], cant: ['❌', T('Can’t make it')] };
   let watchId = null, lastSent = null, lastSentAt = 0, myPos = null;
   const autoArrived = new Set();
 
@@ -1571,14 +1597,14 @@
   const eta = (d) => (d <= 3 ? `🚶 ${Math.max(1, Math.round((d / 4.5) * 60))} min` : `🚕 ${Math.round((d / 25) * 60 + 5)} min`);
   const fmtTime = (at) => {
     const d = new Date(at), today = new Date().toDateString() === d.toDateString();
-    const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return today ? t : `${d.toLocaleDateString([], { weekday: 'short' })} ${t}`;
+    const t = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+    return today ? t : `${d.toLocaleDateString(LOCALE, { weekday: 'short' })} ${t}`;
   };
   const countdown = (at) => {
     const m = Math.round((at - Date.now()) / 60000);
-    if (Math.abs(m) < 1) return 'now';
-    const s = Math.abs(m) >= 60 ? `${Math.floor(Math.abs(m) / 60)} h ${Math.abs(m) % 60} min` : `${Math.abs(m)} min`;
-    return m > 0 ? `in ${s}` : `${s} ago`;
+    if (Math.abs(m) < 1) return T('now');
+    const s = Math.abs(m) >= 60 ? `${Math.floor(Math.abs(m) / 60)} ${T('h')} ${Math.abs(m) % 60} min` : `${Math.abs(m)} min`;
+    return m > 0 ? T('in {t}', { t: s }) : T('{t} ago', { t: s });
   };
   const activeMeetups = () => state.meetups
     .filter((m) => (m.at || m.createdAt) > Date.now() - 3 * 3600e3)
@@ -1587,12 +1613,12 @@
 
   // Sharing my position
   function startSharing() {
-    if (!state.online) { toast('Live location needs the server connection'); return false; }
-    if (!navigator.geolocation) { toast('Location is not available in this browser'); return false; }
-    if (!window.isSecureContext) { toast('Location sharing needs https (or localhost) — see README'); return false; }
+    if (!state.online) { toast(T('Live location needs the server connection')); return false; }
+    if (!navigator.geolocation) { toast(T('Location is not available in this browser')); return false; }
+    if (!window.isSecureContext) { toast(T('Location sharing needs https (or localhost) — see README')); return false; }
     stopWatch();
     watchId = navigator.geolocation.watchPosition(onPosition, (err) => {
-      toast(err.code === 1 ? 'Location permission denied — allow it in browser settings' : 'Could not get your location yet…');
+      toast(err.code === 1 ? T('Location permission denied — allow it in browser settings') : T('Could not get your location yet…'));
       if (err.code === 1) setSharing(false);
     }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
     return true;
@@ -1606,7 +1632,7 @@
       stopWatch(); lastSent = null; myPos = null;
       if (state.locations[memberId]) { delete state.locations[memberId]; renderMembers(); }
       if (state.online) req('DELETE', '/locations/' + memberId).catch(() => {});
-    } else toast('📡 Sharing your location with the family');
+    } else toast(T('📡 Sharing your location with the family'));
     renderLive();
   }
   function sendPosition() {
@@ -1629,7 +1655,7 @@
       if (st !== 'here' && st !== 'cant' && !autoArrived.has(m.id) && km(myPos, m) < 0.06) {
         autoArrived.add(m.id);
         setMeetStatus(m.id, 'here');
-        toast(`✅ You’ve arrived at “${m.title}”`);
+        toast(T('✅ You’ve arrived at “{name}”', { name: m.title }));
       }
     });
   }
@@ -1646,7 +1672,7 @@
       if (!locs[id]) { memberLayer.removeLayer(memberMarkers[id].m); memberLayer.removeLayer(memberMarkers[id].c); delete memberMarkers[id]; }
     });
     Object.values(locs).forEach((l) => {
-      const tip = `<b>${l.memberId === memberId ? 'You' : esc(l.name)}</b> · ${Date.now() - l.ts > STALE ? 'last seen ' : ''}${ago(l.ts)}`;
+      const tip = `<b>${l.memberId === memberId ? T('You') : esc(l.name)}</b> · ${Date.now() - l.ts > STALE ? T('last seen') + ' ' : ''}${ago(l.ts)}`;
       let mm = memberMarkers[l.memberId];
       if (!mm) {
         mm = {
@@ -1668,7 +1694,7 @@
   }
   function meetSummary(m) {
     const c = {}; Object.values(m.status).forEach((s) => { c[s.status] = (c[s.status] || 0) + 1; });
-    return Object.entries(STATUS).filter(([k]) => c[k]).map(([k, [i]]) => `${i} ${c[k]}`).join(' · ') || 'no replies yet';
+    return Object.entries(STATUS).filter(([k]) => c[k]).map(([k, [i]]) => `${i} ${c[k]}`).join(' · ') || T('no replies yet');
   }
   function meetupHtml(m) {
     const mine = m.status[memberId]?.status;
@@ -1678,19 +1704,19 @@
     const rows = [...people.entries()].map(([id, p]) => {
       const d = p.loc ? km(p.loc, m) : null;
       const st = p.status ? STATUS[p.status] : null;
-      return `<div class="meet-row">${avatar(p.name, p.color)}<div class="body"><b>${id === memberId ? 'You' : esc(p.name)}</b>
-        <div class="muted">${st ? st[0] + ' ' + st[1] : 'No reply yet'}${d !== null && p.status !== 'here' ? ` · ${fmtDist(d)} away${d > 0.06 ? ' · ' + eta(d) : ''}` : ''}</div></div></div>`;
-    }).join('') || '<p class="muted" style="font-size:13px">Nobody has replied yet.</p>';
+      return `<div class="meet-row">${avatar(p.name, p.color)}<div class="body"><b>${id === memberId ? T('You') : esc(p.name)}</b>
+        <div class="muted">${st ? st[0] + ' ' + st[1] : T('No reply yet')}${d !== null && p.status !== 'here' ? ` · ${T('{d} away', { d: fmtDist(d) })}${d > 0.06 ? ' · ' + eta(d) : ''}` : ''}</div></div></div>`;
+    }).join('') || `<p class="muted" style="font-size:13px">${T('Nobody has replied yet.')}</p>`;
     return `<div class="popup meetup">
       <h4>🚩 ${esc(m.title)}</h4>
-      <p>${m.at ? `<b>${fmtTime(m.at)}</b> · ${countdown(m.at)}` : 'No time set'} · set by ${esc(m.createdBy)}</p>
+      <p>${m.at ? `<b>${fmtTime(m.at)}</b> · ${countdown(m.at)}` : T('No time set')} · ${T('set by {who}', { who: esc(m.createdBy) })}</p>
       <div class="status-btns">${Object.entries(STATUS).map(([k, [i, l]]) =>
         `<button class="btn small ${mine === k ? 'primary' : ''}" data-act="meet-status" data-id="${esc(m.id)}" data-status="${k}">${i} ${l}</button>`).join('')}</div>
       <div class="meet-people">${rows}</div>
       <div class="detail-actions">
-        <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}&travelmode=walking">🧭 Directions</a>
-        <button class="btn small" data-act="share-meetup" data-id="${esc(m.id)}">📤 Share</button>
-        <button class="btn small danger" data-act="del-meetup" data-id="${esc(m.id)}">🗑 Remove</button>
+        <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}&travelmode=walking">🧭 ${T('Directions')}</a>
+        <button class="btn small" data-act="share-meetup" data-id="${esc(m.id)}">📤 ${T('Share')}</button>
+        <button class="btn small danger" data-act="del-meetup" data-id="${esc(m.id)}">🗑 ${T('Remove')}</button>
       </div>
     </div>`;
   }
@@ -1717,17 +1743,17 @@
   }
   function openMeetupComposer(latlng, { title = '', placeId = '' } = {}) {
     if (!ensureMe()) return;
-    if (!state.online) { toast('Meetups need the server connection'); return; }
+    if (!state.online) { toast(T('Meetups need the server connection')); return; }
     const t = new Date(Date.now() + 30 * 60000);
     t.setMinutes(Math.ceil(t.getMinutes() / 5) * 5, 0, 0);
     const hhmm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
     L.popup({ minWidth: 250 }).setLatLng(latlng).setContent(
       `<form class="popup compose" data-meetup-form data-lat="${(+latlng.lat).toFixed(6)}" data-lng="${(+latlng.lng).toFixed(6)}" data-place="${esc(placeId)}">
-        <h4>🚩 New meetup point</h4>
-        <input name="title" maxlength="120" value="${esc(title)}" placeholder="e.g. Meet at the pier, In front of 7-Eleven" />
+        <h4>🚩 ${T('New meetup point')}</h4>
+        <input name="title" maxlength="120" value="${esc(title)}" placeholder="${T('e.g. Meet at the pier, In front of 7-Eleven')}" />
         <div class="compose-row"><label style="font-size:13px;display:flex;gap:6px;align-items:center">⏰ <input name="time" type="time" value="${hhmm}" /></label>
-          <button class="btn accent small" type="submit">Set meetup</button></div>
-        <p class="muted" style="font-size:12px;margin:0">Everyone in the family gets notified.</p>
+          <button class="btn accent small" type="submit">${T('Set meetup')}</button></div>
+        <p class="muted" style="font-size:12px;margin:0">${T('Everyone in the family gets notified.')}</p>
       </form>`,
     ).openOn(map);
     setTimeout(() => $('[data-meetup-form] input[name=title]')?.focus(), 50);
@@ -1740,15 +1766,15 @@
       if (d.getTime() < Date.now() - 60 * 60000) d.setDate(d.getDate() + 1); // earlier than an hour ago → tomorrow
       at = d.getTime();
     }
-    const body = { title: f.title.value.trim() || 'Meet here', lat: Number(f.dataset.lat), lng: Number(f.dataset.lng), at,
+    const body = { title: f.title.value.trim() || T('Meet here'), lat: Number(f.dataset.lat), lng: Number(f.dataset.lng), at,
       placeId: f.dataset.place || null, createdBy: state.me.name, color: state.me.color };
     try {
       const m = await req('POST', '/meetups', body);
       upsertMeetup(m);
       map.closePopup(); setMode(null);
       setTimeout(() => meetupMarkers[m.id]?.openPopup(), 50);
-      toast('🚩 Meetup set — the family has been notified');
-    } catch (e) { toast('Could not set meetup: ' + e.message); }
+      toast(T('🚩 Meetup set — the family has been notified'));
+    } catch (e) { toast(T('Could not set meetup: ') + e.message); }
   }
   function upsertMeetup(m) {
     const i = state.meetups.findIndex((x) => x.id === m.id);
@@ -1759,21 +1785,21 @@
     try {
       const m = await req('PUT', `/meetups/${encodeURIComponent(id)}/status/${memberId}`, { status, name: state.me?.name, color: state.me?.color });
       upsertMeetup(m);
-    } catch (e) { toast('Could not update: ' + e.message); }
+    } catch (e) { toast(T('Could not update: ') + e.message); }
   }
   function meetMidpoint() {
-    const locs = freshLocs(); if (locs.length < 2) return toast('Need at least two people sharing their location');
+    const locs = freshLocs(); if (locs.length < 2) return toast(T('Need at least two people sharing their location'));
     const c = { lat: locs.reduce((s, l) => s + l.lat, 0) / locs.length, lng: locs.reduce((s, l) => s + l.lng, 0) / locs.length };
     // snap to the nearest known place if one is close, so the meetup is somewhere recognisable
     let best = null;
     PLACES.forEach((p) => { if (p.cat === 'airport') return; const d = km(c, p); if (d < 0.5 && (!best || d < best.d)) best = { p, d }; });
     const target = best ? { lat: best.p.lat, lng: best.p.lng } : c;
     map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), 15));
-    map.once('moveend', () => openMeetupComposer(target, best ? { title: best.p.name, placeId: best.p.id } : { title: 'Halfway point' }));
+    map.once('moveend', () => openMeetupComposer(target, best ? { title: best.p.name, placeId: best.p.id } : { title: T('Halfway point') }));
   }
   function fitFamily() {
     const pts = [...freshLocs(), ...activeMeetups()].map((x) => [x.lat, x.lng]);
-    if (!pts.length) { toast('Nobody is sharing a location yet'); switchTab('family'); return; }
+    if (!pts.length) { toast(T('Nobody is sharing a location yet')); switchTab('family'); return; }
     if (pts.length === 1) map.flyTo(pts[0], 16); else map.flyToBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 16 });
   }
 
@@ -1784,24 +1810,24 @@
     const locs = Object.values(state.locations).sort((a, b) => (b.memberId === memberId) - (a.memberId === memberId) || b.ts - a.ts);
     const meets = activeMeetups();
     el.innerHTML = `
-      <div class="live-head"><h3>📡 Where is everyone?</h3>
-        <label class="switch"><input type="checkbox" data-share-toggle ${state.sharing ? 'checked' : ''} ${state.online ? '' : 'disabled'} /><span class="track"></span> Share me</label></div>
-      <p class="muted small">${state.sharing ? 'The family can see where you are while ThaiMap is open on this device.' : 'Turn on so the family can find you. Only shared while the app is open — never stored on disk.'}</p>
+      <div class="live-head"><h3>📡 ${T('Where is everyone?')}</h3>
+        <label class="switch"><input type="checkbox" data-share-toggle ${state.sharing ? 'checked' : ''} ${state.online ? '' : 'disabled'} /><span class="track"></span> ${T('Share me')}</label></div>
+      <p class="muted small">${state.sharing ? T('The family can see where you are while ThaiMap is open on this device.') : T('Turn on so the family can find you. Only shared while the app is open — never stored on disk.')}</p>
       ${locs.length ? `<div class="people">${locs.map((l) => {
         const d = myPos && l.memberId !== memberId ? km(myPos, l) : null;
         return `<div class="meet-row clickable" data-act="goto-member" data-id="${esc(l.memberId)}">${avatar(l.name, l.color)}
-          <div class="body"><b>${l.memberId === memberId ? 'You' : esc(l.name)}</b>
-          <div class="muted">${Date.now() - l.ts > STALE ? '⚠️ last seen ' : '🟢 '}${ago(l.ts)}${d !== null ? ` · ${fmtDist(d)} from you` : ''}</div></div></div>`;
-      }).join('')}</div>` : '<p class="muted small">Nobody is sharing their location right now.</p>'}
+          <div class="body"><b>${l.memberId === memberId ? T('You') : esc(l.name)}</b>
+          <div class="muted">${Date.now() - l.ts > STALE ? '⚠️ ' + T('last seen') + ' ' : '🟢 '}${ago(l.ts)}${d !== null ? ` · ${T('{d} from you', { d: fmtDist(d) })}` : ''}</div></div></div>`;
+      }).join('')}</div>` : `<p class="muted small">${T('Nobody is sharing their location right now.')}</p>`}
       <div class="detail-actions">
-        ${locs.length ? '<button class="btn small" data-act="fit-family">👀 Show everyone</button>' : ''}
-        ${freshLocs().length > 1 ? '<button class="btn small" data-act="meet-midpoint">🎯 Meet in the middle</button>' : ''}
+        ${locs.length ? `<button class="btn small" data-act="fit-family">👀 ${T('Show everyone')}</button>` : ''}
+        ${freshLocs().length > 1 ? `<button class="btn small" data-act="meet-midpoint">🎯 ${T('Meet in the middle')}</button>` : ''}
       </div>
-      <h3 style="margin-top:14px">🚩 Meetup points</h3>
+      <h3 style="margin-top:14px">🚩 ${T('Meetup points')}</h3>
       ${meets.length ? meets.map((m) => `<div class="meet-row clickable" data-act="goto-meetup" data-id="${esc(m.id)}"><div class="flag-ico">🚩</div>
-        <div class="body"><b>${esc(m.title)}</b><div class="muted">${m.at ? `${fmtTime(m.at)} · ${countdown(m.at)}` : 'no time set'} · ${meetSummary(m)}</div></div></div>`).join('')
-        : '<p class="muted small">If you split up, set a meetup point so everyone knows where to regroup.</p>'}
-      <div class="detail-actions"><button class="btn small accent" data-act="new-meetup">🚩 Set a meetup point</button></div>`;
+        <div class="body"><b>${esc(m.title)}</b><div class="muted">${m.at ? `${fmtTime(m.at)} · ${countdown(m.at)}` : T('no time set')} · ${meetSummary(m)}</div></div></div>`).join('')
+        : `<p class="muted small">${T('If you split up, set a meetup point so everyone knows where to regroup.')}</p>`}
+      <div class="detail-actions"><button class="btn small accent" data-act="new-meetup">🚩 ${T('Set a meetup point')}</button></div>`;
   }
 
   function applyLiveEvent(ev) {
@@ -1816,7 +1842,7 @@
       const prev = state.meetups.find((x) => x.id === ev.meetup.id);
       const m = ev.meetup;
       if (!prev && m.createdBy !== state.me?.name) {
-        toast(`🚩 ${m.createdBy} set a meetup: ${m.title}${m.at ? ' at ' + fmtTime(m.at) : ''}`);
+        toast(T('🚩 {who} set a meetup: {name}', { who: m.createdBy, name: m.title }) + (m.at ? ' ' + T('at') + ' ' + fmtTime(m.at) : ''));
         navigator.vibrate?.([120, 60, 120]);
       } else if (prev) {
         Object.entries(m.status).forEach(([id, s]) => {
@@ -1856,6 +1882,16 @@
 
   // Re-render "x min ago" labels now and then
   setInterval(() => { if (!document.activeElement?.closest?.('.compose')) { renderFeed(); } }, 60000);
+
+  // ── static texts & language switch ──────────────────────────
+  $$('[data-i18n]').forEach((el) => { el.textContent = T(el.dataset.i18n); });
+  $$('[data-i18n-html]').forEach((el) => { el.innerHTML = T(el.dataset.i18nHtml); });
+  $$('[data-i18n-ph]').forEach((el) => { el.placeholder = T(el.dataset.i18nPh); });
+  $$('[data-i18n-title]').forEach((el) => { el.title = T(el.dataset.i18nTitle); el.setAttribute('aria-label', el.title); });
+  document.title = T('ThaiMap — Family Trip Planner');
+  $('#langBtn').textContent = LANG === 'sv' ? '🇬🇧 EN' : '🇸🇪 SV';
+  $('#langBtn').title = LANG === 'sv' ? 'Switch to English' : 'Byt till svenska';
+  $('#langBtn').addEventListener('click', () => { LS.set('lang', LANG === 'sv' ? 'en' : 'sv'); location.reload(); });
 
   // ── boot ────────────────────────────────────────────────────
   const urlFamily = new URLSearchParams(location.search).get('family');
