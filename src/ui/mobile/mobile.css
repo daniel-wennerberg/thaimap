@@ -42,7 +42,9 @@
 .m-back { border: 0; background: none; color: var(--teal); font-size: 16px; font-weight: 600; padding: 4px 0; }
 .m-live { font-size: 12px; color: var(--saffron); font-weight: 600; }
 .m-live.on { color: var(--teal); }
-.m-sheet-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.m-sheet-body { overflow-y: auto; overscroll-behavior: none; -webkit-overflow-scrolling: touch; }
+/* below full height the content doesn't scroll — vertical drags move the whole sheet */
+.m-sheet-body.locked { overflow-y: hidden; }
 .m-sheet-content { padding: 4px 14px calc(24px); }
 .m-sheet-content .chips { margin-top: 0; }
 .m-sheet-content .detail { box-shadow: none; }
