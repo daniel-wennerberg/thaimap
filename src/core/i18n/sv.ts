@@ -1,5 +1,5 @@
 // Swedish UI texts. Key = the English text used in app.js / index.html (T() falls back to English).
-window.I18N_SV = {
+export const I18N_SV: Record<string, string> = {
   "(on the last day)": "(sista dagen)",
   "+1 day": "+1 dag",
   "+{n} more": "+{n} till",

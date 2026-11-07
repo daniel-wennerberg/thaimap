@@ -1,5 +1,7 @@
+import type { DataTranslations } from '../model';
+
 // Swedish translations of data.js content. Applied at startup when the app language is Swedish.
-window.DATA_SV = {
+export const DATA_SV: DataTranslations = {
   categories: {
     mustsee: 'Måste se',
     beach: 'Stränder',

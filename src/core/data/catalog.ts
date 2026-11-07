@@ -1,7 +1,9 @@
+import type { Category, Region, Place, Template, Destination, IntlFares } from '../model';
+
 // Curated places in Thailand. Coordinates are accurate to the area/entrance level.
 // price: 1 = budget, 2 = mid, 3 = upscale, 4 = luxury
 
-window.CATEGORIES = {
+export const CATEGORIES: Record<string, Category> = {
   mustsee:   { label: 'Must-see',    icon: '⛩️', color: '#c2410c' },
   beach:     { label: 'Beaches',     icon: '🏖️', color: '#0891b2' },
   island:    { label: 'Islands',     icon: '🏝️', color: '#0d9488' },
@@ -11,7 +13,7 @@ window.CATEGORIES = {
   airport:   { label: 'Airports',    icon: '✈️', color: '#334155' },
 };
 
-window.REGIONS = {
+export const REGIONS: Record<string, Region> = {
   bangkok: { label: 'Bangkok', center: [13.7468, 100.5240], zoom: 13 },
   north:   { label: 'Chiang Mai & North', center: [18.95, 98.95], zoom: 9 },
   andaman: { label: 'Phuket, Krabi & Andaman', center: [7.95, 98.6], zoom: 9 },
@@ -22,7 +24,7 @@ window.REGIONS = {
   all:     { label: 'All Thailand', center: [13.2, 100.9], zoom: 6 },
 };
 
-window.PLACES = [
+export const PLACES: Place[] = [
   // ───────────── MUST-SEE ─────────────
   { id: 'grand-palace', cat: 'mustsee', region: 'bangkok', name: 'Grand Palace & Wat Phra Kaew', lat: 13.7500, lng: 100.4913,
     desc: 'The former royal residence and home of the Emerald Buddha. Thailand’s most important sight.',
@@ -298,7 +300,7 @@ window.PLACES = [
 ];
 
 // Ready-made day plans. Stops reference PLACES ids.
-window.TEMPLATES = [
+export const TEMPLATES: Template[] = [
   { id: 'bkk-temples', type: 'city', name: 'Bangkok: temples & river', region: 'bangkok',
     blurb: 'The classic old-town loop on foot and by river ferry, ending with Chinatown street food.',
     stops: [
@@ -381,7 +383,7 @@ window.TEMPLATES = [
 // ───────────── TRIP PLANNING ─────────────
 // Places to stay a few nights. airport = the practical airport to fly in/out (null = go overland).
 // transfer = how you usually get there overland/by boat. All prices are rough guides — check before you go.
-window.DESTINATIONS = [
+export const DESTINATIONS: Destination[] = [
   { id: 'bangkok',      name: 'Bangkok',           region: 'bangkok', lat: 13.7468, lng: 100.5240, airport: 'BKK', transfer: 'Train/bus hub for the whole country' },
   { id: 'ayutthaya',    name: 'Ayutthaya',         region: 'central', lat: 14.3532, lng: 100.5689, airport: null,  transfer: 'Train from Bangkok ~1.5 h, 20–350 ฿ · taxi ~1.5 h, 1,200–1,500 ฿' },
   { id: 'kanchanaburi', name: 'Kanchanaburi',      region: 'central', lat: 14.0228, lng: 99.5328,  airport: null,  transfer: 'Minivan/train from Bangkok ~2.5–3 h, 100–200 ฿ · taxi ~2.5 h, 2,000–2,500 ฿' },
@@ -405,7 +407,7 @@ window.DESTINATIONS = [
 
 // Typical one-way economy fares in THB per person between Thai airports (DMK counts as BKK).
 // Very rough guides from low-cost (AirAsia, Nok, Thai Lion, VietJet) to full-service.
-window.DOMESTIC_FARES = {
+export const DOMESTIC_FARES: Record<string, [number, number]> = {
   'BKK-CNX': [900, 2500], 'BKK-CEI': [900, 2500], 'BKK-HKT': [900, 2800], 'BKK-KBV': [900, 2600],
   'BKK-USM': [2800, 6500], 'BKK-URT': [900, 2300], 'BKK-TDX': [2500, 5000], 'BKK-HDY': [900, 2500],
   'BKK-TST': [900, 2300], 'BKK-THS': [2500, 4500], 'BKK-CJM': [1000, 2500], 'BKK-UTH': [900, 2200],
@@ -415,7 +417,7 @@ window.DOMESTIC_FARES = {
 
 // Typical return economy fares in SEK per person from the Nordics (usually 1 stop; direct BKK on some routes).
 // high = Dec–Feb, Easter and July; low = the rest.
-window.INTL_FARES = {
+export const INTL_FARES: IntlFares = {
   origins: ['ARN', 'GOT', 'CPH', 'OSL', 'HEL', 'BGO', 'MMX', 'BLL', 'AAL', 'TRD', 'SVG'],
   to: {
     BKK: { low: [5500, 9000], high: [8000, 14000] },

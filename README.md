@@ -5,11 +5,16 @@ A Thailand travel app built around the map. Browse hand-picked hotels, restauran
 ## Run it
 
 ```bash
-npm start            # or: node server.js   (no npm install needed)
+npm install
+npm run build && npm start      # production: builds to dist/ and serves it + the family API
 # → http://localhost:3000
+
+# development (hot reload):
+npm run server                  # family API on :3000
+npm run dev                     # Vite on :5173, proxies /api to :3000
 ```
 
-It needs Node 18 or newer and has no dependencies. Set `PORT=8080` to change the port and `DATA_DIR=/path` to choose where family data is stored. By default it goes in `./data`.
+It needs Node 20 or newer. Set `PORT=8080` to change the port and `DATA_DIR=/path` to choose where family data is stored. By default it goes in `./data`. `npm run typecheck` checks the TypeScript core.
 
 ## Features
 
@@ -24,7 +29,7 @@ It needs Node 18 or newer and has no dependencies. Set `PORT=8080` to change the
   - Booking/Agoda and GetYourGuide/Klook/Viator searches for each stop's dates;
   - "Things to do near…" ideas from the curated places and ready-made days.
 
-  Tap a day to plan it. Prices are **rough guide prices** (see `DESTINATIONS`, `DOMESTIC_FARES` and `INTL_FARES` in `public/data.js`), not live fares.
+  Tap a day to plan it. Prices are **rough guide prices** (see `DESTINATIONS`, `DOMESTIC_FARES` and `INTL_FARES` in `src/core/data/catalog.ts`), not live fares.
 - **Day planner:** build a day from places or from custom stops you tap on the map. You can reorder stops, set times and add notes. The route is drawn on the map with the walking, driving or boat distance for each leg. You can also share a day as text for WhatsApp.
 - **Ready-made days:** two Bangkok city days, Krabi 4-island, Phi Phi, Samui→Phangan→Tao, the Chiang Mai Monk's Trail, Doi Inthanon, Krabi hikes and Kanchanaburi. Preview one on the map, then add it as a day with one tap.
 - **Family sharing:** everyone who enters the same **family code** shares:
@@ -35,7 +40,7 @@ It needs Node 18 or newer and has no dependencies. Set `PORT=8080` to change the
 - **Find each other:** each person can switch on *Share me* (Family tab) to appear live on the map, with a last-seen time and their distance from you. 👪 shows everyone at once.
 - **Meetup points:** if you split up, tap 🚩 Meet and choose a spot on the map, use *Meet here* on a place, or let *Meet in the middle* pick a point between everyone. You can set a time. Everyone gets notified and can answer on my way / running late / I'm here / can't make it, and sees each person's distance and walking ETA. People are marked as arrived automatically when they reach the spot.
 - Works on phones, where the panel becomes a bottom sheet.
-- **English / Svenska:** the app follows the browser language and has a 🇸🇪/🇬🇧 switch in the header. UI texts are in `public/i18n.sv.js` (the key is the English text), and the Swedish place and day texts are in `public/data.sv.js`.
+- **English / Svenska:** the app follows the browser language and has a 🇸🇪/🇬🇧 switch in the header. UI texts are in `src/core/i18n/sv.ts` (the key is the English text), and the Swedish place and day texts are in `src/core/i18n/data.sv.ts`.
 
 ## Sharing with family
 
@@ -46,7 +51,7 @@ The invite link (Family tab → *Copy invite*) adds `?family=<code>` to the addr
 
 The family code acts as the password, so pick one that's hard to guess (the 🎲 button makes one). There are no user accounts, and anyone who has the code can read and edit.
 
-If you open `public/index.html` directly without the server, the app still works but saves everything only on that device.
+Without the server (e.g. on GitHub Pages) the app still works but saves everything only on that device.
 
 ## Live location: what to know
 
@@ -57,16 +62,22 @@ If you open `public/index.html` directly without the server, the app still works
 ## Project layout
 
 ```
-server.js         static server + family API (notes, plans, live events) — JSON files in data/
-public/index.html
-public/styles.css
-public/app.js     map, panels, planner, comments, sync
-public/neighbors.js  neighbouring-country shapes (Natural Earth 10m, public domain) for the grey mask
-public/data.js    places, categories, regions, ready-made day templates  ← edit to add places
-public/data.sv.js Swedish texts for places, days and destinations
-public/i18n.sv.js Swedish UI texts
+server.js                 family API (notes, plans, trips, live locations, meetups) + serves dist/
+index.html                app shell markup
+src/main.ts               entry point (picks the view shell)
+src/core/                 shared, framework-free TypeScript: used by every view
+  model.ts                data types (Place, Trip, Stay, Flight, DayPlan, Note, Meetup …)
+  data/catalog.ts         places, categories, regions, ready-made days, destinations, guide fares  ← edit to add places
+  i18n/                   T(), Swedish UI texts (sv.ts) and Swedish place texts (data.sv.ts)
+  domain/                 pure logic: trip days & travel days, fares, ideas, routes, outbound links
+  store.ts                state, server sync (REST + SSE), on-device fallback, live location, meetups, events
+src/ui/desktop/           current view layer: floating glass panels over a full-screen Leaflet map
+src/ui/map/neighbors.json neighbouring-country shapes (Natural Earth 10m, public domain), lazy-loaded
 ```
 
-To add a place, add an entry to `PLACES` in `public/data.js` (`id`, `cat`, `region`, `name`, `lat`, `lng`, `desc`, `tip`, …).
+Views never call the server directly: they call actions in `store` and re-render on its events
+(`all`, `notes`, `plans`, `live`, `meetups`, `conn`, `notify`). That keeps a future mobile shell a pure view swap.
+
+To add a place, add an entry to `PLACES` in `src/core/data/catalog.ts` (`id`, `cat`, `region`, `name`, `lat`, `lng`, `desc`, `tip`, …).
 
 Opening hours, seasons and prices change, so check before you go.

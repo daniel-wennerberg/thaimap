@@ -10,16 +10,19 @@ const os = require('os');
 const crypto = require('crypto');
 
 const PORT = Number(process.env.PORT) || 3000;
-const PUBLIC_DIR = path.join(__dirname, 'public');
+// Built app (npm run build → dist/). In development use `npm run dev` (Vite) + `npm run server`.
+const PUBLIC_DIR = path.join(__dirname, 'dist');
 const DATA_DIR = path.join(process.env.DATA_DIR || path.join(__dirname, 'data'), 'families');
 const MAX_BODY = 64 * 1024;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(path.join(PUBLIC_DIR, 'index.html'))) console.warn('⚠️  dist/ not built yet — run `npm run build` (or use `npm run dev` for development).');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
+  '.map': 'application/json', '.woff2': 'font/woff2',
 };
 
 // ── family store ──────────────────────────────────────────────
