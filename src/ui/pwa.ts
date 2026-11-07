@@ -18,8 +18,10 @@ function banner(html: string, actions: { label: string; primary?: boolean; run: 
   if (ttl) setTimeout(() => el.remove(), ttl);
 }
 
+let started = false;
 export function initPwa(): void {
-  if (!('serviceWorker' in navigator)) return;
+  if (started || !('serviceWorker' in navigator)) return;
+  started = true;
   const updateSW = registerSW({
     onNeedRefresh() {
       banner(T('A new version is ready'), [{ label: T('Update'), primary: true, run: () => updateSW(true) }, { label: '✕', run: () => {} }]);

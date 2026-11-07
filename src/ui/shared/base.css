@@ -320,11 +320,11 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .dialog { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 0; width: min(420px, calc(100vw - 32px)); box-shadow: var(--shadow);
   background: rgba(18,20,24,.94); color: var(--ink); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
 .dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
-.dialog form { padding: 22px; display: grid; gap: 12px; }
-.dialog h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 28px; letter-spacing: -.03em; }
-.dialog p { margin: 0; font-size: 14px; }
-.dialog label { display: grid; gap: 5px; font-size: 12px; font-weight: 600; color: var(--muted); }
-.dialog label input, .dialog label select { color: var(--ink); }
+.dialog form, .m-modal-card form { padding: 22px; display: grid; gap: 12px; }
+.dialog h2, .m-modal-card h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 28px; letter-spacing: -.03em; }
+.dialog p, .m-modal-card p { margin: 0; font-size: 14px; }
+.dialog label, .m-modal-card label { display: grid; gap: 5px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.dialog label input, .dialog label select, .m-modal-card label input, .m-modal-card label select { color: var(--ink); }
 .color-row { display: flex; gap: 8px; }
 .color-row button { width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(255,255,255,.9); box-shadow: 0 0 0 1px var(--line); cursor: pointer; }
 .color-row button.on { box-shadow: 0 0 0 3px var(--teal); }
@@ -337,10 +337,10 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 /* ── trips & timeline ── */
 .trip-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .trip-bar select { flex: 1; min-width: 0; font-weight: 600; }
-#tripView { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-#tripView > * { min-width: 0; }
+.trip-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.trip-view > * { min-width: 0; }
 .flight > div { min-width: 0; }
-#tripView .section-title { margin: 10px 0 0; }
+.trip-view .section-title { margin: 10px 0 0; }
 .trip-welcome { display: grid; gap: 8px; justify-items: center; padding: 26px 18px; text-align: center; color: var(--muted); }
 .trip-welcome .big { font-size: 40px; }
 .trip-welcome b { font-family: var(--display); font-weight: 400; font-size: 24px; letter-spacing: -.02em; color: var(--ink); }
@@ -414,8 +414,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   place-items: center; font-weight: 800; font-size: 13px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 35%, transparent), 0 4px 12px rgba(0,0,0,.5); }
 
 .dialog.wide { width: min(540px, calc(100vw - 24px)); }
-.dialog fieldset { border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px 12px; margin: 0; display: grid; gap: 8px; background: rgba(255,255,255,.02); }
-.dialog legend { font-weight: 700; font-size: 13.5px; padding: 0 4px; }
+.dialog fieldset, .m-modal-card fieldset { border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px 12px; margin: 0; display: grid; gap: 8px; background: rgba(255,255,255,.02); }
+.dialog legend, .m-modal-card legend { font-weight: 700; font-size: 13.5px; padding: 0 4px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .grid3 input, .grid3 select { width: 100%; min-width: 0; }
 .dialog form { max-height: calc(100dvh - 40px); overflow: auto; }
@@ -480,3 +480,17 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
     .leaflet-top.leaflet-right { top: calc(2px + env(safe-area-inset-top)); }
   }
 }
+
+/* ── shared React building blocks ── */
+.map-card { position: absolute; z-index: 660; top: calc(var(--gap) + 110px); right: 110px; width: min(360px, calc(100% - 140px));
+  max-height: calc(100% - 220px); overflow: auto; border-radius: 18px; box-shadow: var(--shadow); }
+#app.desktop:not(.panel-off) .map-card { right: 110px; }
+.map-card > .card { background: var(--glass-strong); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border-color: var(--line-2); }
+.draft-card h3, .meetup-card h3, .note-card h3 { margin: 0 0 8px; }
+.time-label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.time-label input { padding: 6px 8px; }
+.back-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.back-title { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-row select { flex: 1; min-width: 0; }
+.color-row button.on { box-shadow: 0 0 0 3px var(--teal); }
+#root { height: 100%; }

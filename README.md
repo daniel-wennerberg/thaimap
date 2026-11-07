@@ -65,7 +65,7 @@ Without the server (e.g. on GitHub Pages) the app still works but saves everythi
 ```
 server.js                 family API (notes, plans, trips, live locations, meetups) + serves dist/
 index.html                app shell markup
-src/main.ts               entry point (picks the view shell)
+src/main.tsx              entry point: picks the view shell for this device (?shell=mobile|desktop|auto to force)
 src/core/                 shared, framework-free TypeScript: used by every view
   model.ts                data types (Place, Trip, Stay, Flight, DayPlan, Note, Meetup …)
   data/catalog.ts         places, categories, regions, ready-made days, destinations, guide fares  ← edit to add places
@@ -73,14 +73,17 @@ src/core/                 shared, framework-free TypeScript: used by every view
   domain/                 pure logic: trip days & travel days, fares, ideas, routes, outbound links
   store.ts                state, server sync (REST + SSE), offline snapshot + outbox, live location, meetups, events
   persist.ts              tiny IndexedDB key-value store
-src/ui/desktop/           current view layer: floating glass panels over a full-screen Leaflet map
-src/ui/pwa.ts             service worker registration, update prompt, install button (shared by all shells)
+src/ui/map/               MapController (Leaflet, no framework): layers, mask, markers, routes; emits click events
+src/ui/shared/            React: view state (ui-store), actions, and every panel component used by both shells
+src/ui/desktop/           desktop shell: floating glass panel with tabs, HUD title + stat cards, tool column
+src/ui/mobile/            mobile shell: full-screen map, draggable bottom sheet (peek/half/full), tab bar, swipe-back
+src/ui/pwa.ts             service worker registration, update prompt, install button
 public/                   app icons (copied as-is into the build)
-src/ui/map/neighbors.json neighbouring-country shapes (Natural Earth 10m, public domain), lazy-loaded
 ```
 
-Views never call the server directly: they call actions in `store` and re-render on its events
-(`all`, `notes`, `plans`, `live`, `meetups`, `conn`, `notify`). That keeps a future mobile shell a pure view swap.
+Views never call the server directly: React components call `src/ui/shared/actions.ts`, which uses `store`, and everything
+re-renders on store events (`all`, `notes`, `plans`, `live`, `meetups`, `conn`, `notify`). The two shells only differ in layout
+and navigation; all panels (places, trip timeline, day editor, family, meetups, forms) are the same components.
 
 To add a place, add an entry to `PLACES` in `src/core/data/catalog.ts` (`id`, `cat`, `region`, `name`, `lat`, `lng`, `desc`, `tip`, …).
 

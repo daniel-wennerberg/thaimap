@@ -1,0 +1,87 @@
+/* ThaiMap — mobile shell: full-screen map, compact title, tool column, bottom sheet, tab bar */
+#app.mobile { position: fixed; inset: 0; height: 100dvh; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+#app.mobile #map { position: absolute; inset: 0; }
+.mobile button { -webkit-user-select: none; user-select: none; }
+.mobile input, .mobile select, .mobile textarea { font-size: 16px; } /* no iOS zoom on focus */
+
+/* title & top actions */
+.m-top { position: absolute; z-index: 600; top: calc(env(safe-area-inset-top) + 10px); left: 14px; right: 62px; display: flex; align-items: flex-start; gap: 8px; pointer-events: none; }
+.m-title { min-width: 0; flex: 1; pointer-events: auto; }
+.m-title .hud-title { font-size: 30px; margin-top: 2px; }
+.m-top-actions { display: flex; gap: 6px; pointer-events: auto; }
+.m-chip { border: 1px solid var(--line); background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  color: var(--ink); border-radius: 999px; height: 34px; min-width: 34px; padding: 0 10px; font-weight: 700; font-size: 12.5px; }
+.mobile .leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top) + 6px); right: 4px; }
+.mobile .leaflet-control-layers-toggle { width: 40px !important; height: 40px !important; }
+.mobile .leaflet-bottom.leaflet-left { display: none; }
+.mobile .leaflet-control-attribution { font-size: 9px; }
+
+/* tools */
+.m-tools { position: absolute; z-index: 640; right: 8px; top: calc(env(safe-area-inset-top) + 64px); display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 18px; }
+.m-tool { width: 44px; height: 44px; border: 0; border-radius: 14px; background: transparent; font-size: 19px; color: var(--ink); }
+.m-tool:active { background: var(--card-2); transform: scale(.94); }
+.m-tool.active { background: var(--saffron); }
+
+.mobile .mode-banner { top: calc(env(safe-area-inset-top) + 64px); left: 12px; right: 64px; transform: none; white-space: normal; text-align: center; border-radius: 16px; }
+.mobile .conn-banner.m-conn { top: calc(env(safe-area-inset-top) + 84px); left: 12px; right: 64px; transform: none; white-space: normal; border-radius: 14px; text-align: center; }
+
+/* bottom sheet */
+.m-sheet { position: absolute; z-index: 700; left: 0; right: 0; display: flex; flex-direction: column;
+  border-radius: 24px 24px 0 0; background: rgba(14, 16, 20, .97); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line); border-bottom: 0; box-shadow: 0 -12px 40px rgba(0,0,0,.45);
+  transition: transform .32s cubic-bezier(.2, .9, .25, 1); will-change: transform; }
+.m-sheet.dragging { transition: none; }
+.m-sheet-grab { touch-action: none; cursor: grab; flex: none; }
+.m-handle { padding: 8px 0 6px; }
+.m-handle span { display: block; width: 38px; height: 5px; border-radius: 3px; background: var(--line-2); margin: 0 auto; }
+.m-sheet-head { padding: 0 14px 10px; }
+.m-sheet-head .search { gap: 6px; }
+.m-sheet-head .search select { max-width: 42%; }
+.m-sheet-head .trip-bar { margin: 0; }
+.m-sheet-title { display: flex; align-items: center; gap: 10px; padding: 0 16px 10px; min-height: 34px; font-size: 17px; }
+.m-back { border: 0; background: none; color: var(--teal); font-size: 16px; font-weight: 600; padding: 4px 0; }
+.m-live { font-size: 12px; color: var(--saffron); font-weight: 600; }
+.m-live.on { color: var(--teal); }
+.m-sheet-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.m-sheet-content { padding: 4px 14px calc(24px); }
+.m-sheet-content .chips { margin-top: 0; }
+.m-sheet-content .detail { box-shadow: none; }
+.m-pushed { animation: m-push .28s cubic-bezier(.2, .9, .25, 1); }
+@keyframes m-push { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .m-pushed { animation: none; } .m-sheet { transition: none; } }
+
+/* bigger touch targets inside the sheet */
+.mobile .btn { min-height: 40px; padding: 8px 14px; }
+.mobile .btn.small { min-height: 34px; padding: 6px 11px; font-size: 13px; }
+.mobile .btn.tiny { min-height: 30px; }
+.mobile .icon-btn { min-width: 34px; min-height: 34px; }
+.mobile .chip { padding: 8px 12px; }
+.mobile .place-row { padding: 11px 8px; }
+.mobile .stay-row { grid-template-columns: 26px 1fr auto; }
+.mobile .stay .ctrl { grid-column: 2 / 4; justify-content: flex-end; margin-top: -4px; }
+.mobile .tl-day:active .tl-body { background: var(--card-2); }
+
+/* tab bar */
+.m-tabbar { position: absolute; z-index: 720; left: 0; right: 0; bottom: 0; height: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom); display: flex; border-radius: 0; border-width: 1px 0 0; box-shadow: none;
+  background: rgba(12, 14, 18, .94); }
+.m-tab { flex: 1; border: 0; background: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+.m-tab-ico { font-size: 21px; line-height: 1; position: relative; filter: grayscale(.6); opacity: .8; transition: transform .15s; }
+.m-tab-label { font-size: 11px; font-weight: 600; }
+.m-tab.active { color: var(--ink); }
+.m-tab.active .m-tab-ico { filter: none; opacity: 1; transform: translateY(-1px) scale(1.08); }
+.m-tab .dot { top: -2px; right: -8px; }
+/* the sheet sits above the tab bar, including the home-indicator area */
+.mobile .m-sheet { margin-bottom: env(safe-area-inset-bottom); }
+
+/* full-screen modal forms */
+.m-modal { position: fixed; inset: 0; z-index: 1500; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; animation: m-fade .2s; }
+.m-modal-card { width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 24px); overflow-y: auto; border-radius: 24px 24px 0 0;
+  background: #121418; border: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); animation: m-up .3s cubic-bezier(.2, .9, .25, 1); }
+.m-modal-card form { padding: 6px 18px 20px; }
+.m-modal-card .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@keyframes m-up { from { transform: translateY(40%); } to { transform: none; } }
+@keyframes m-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.mobile .toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
+.mobile .pwa-banner { top: calc(env(safe-area-inset-top) + 8px); }

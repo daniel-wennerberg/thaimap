@@ -280,4 +280,9 @@ export const I18N_SV: Record<string, string> = {
   "A new version is ready": "En ny version finns",
   "Update": "Uppdatera",
   "Ready to use offline ✓": "Redo att användas offline ✓",
+  "Back": "Tillbaka",
+  "Choose day": "Välj dag",
+  "Choose trip": "Välj resa",
+  "Close": "Stäng",
+  "Jump to region": "Hoppa till region",
 };
