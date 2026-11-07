@@ -252,9 +252,42 @@
 
   // ── map ─────────────────────────────────────────────────────
   const TH_BOUNDS = L.latLngBounds([5.5, 97.3], [20.5, 105.7]);
+  // Roam window: wide enough that Thailand can sit beside the floating panel (the area outside is masked dark)
+  const MASK_BOX = L.latLngBounds([-1, 90], [28, 112]);
   const map = L.map('map', {
-    zoomControl: false, minZoom: 5, maxBounds: TH_BOUNDS.pad(0.25), maxBoundsViscosity: 1, worldCopyJump: false,
+    zoomControl: false, minZoom: 5, maxBounds: L.latLngBounds([-28, 62], [48, 140]), maxBoundsViscosity: 1, worldCopyJump: false,
   }).fitBounds(TH_BOUNDS);
+
+  // The panel floats over the map, so every "centre on X" aims at the visible area beside/above it.
+  function viewPad() {
+    const mobile = window.innerWidth <= 760;
+    const off = $('#app').classList.contains('panel-off');
+    const r = $('#panel').getBoundingClientRect();
+    if (mobile) return { l: 0, t: 70, r: 64, b: off ? 0 : Math.max(0, window.innerHeight - r.top) + 8 };
+    return { l: off ? 0 : r.right + 8, t: 70, r: 100, b: 20 };
+  }
+  function centreFor(ll, z) {
+    const P = viewPad();
+    return map.unproject(map.project(L.latLng(ll), z).add(L.point((P.r - P.l) / 2, (P.b - P.t) / 2)), z);
+  }
+  function boundsTarget(b, extra = [0, 0], maxZoom = 18) {
+    const P = viewPad();
+    const tl = L.point(P.l + extra[0], P.t + extra[1]), br = L.point(P.r + extra[0], P.b + extra[1]);
+    const z = Math.min(maxZoom, map.getBoundsZoom(b, false, tl.add(br)));
+    const c = map.project(b.getSouthWest(), z).add(map.project(b.getNorthEast(), z)).divideBy(2).add(br.subtract(tl).divideBy(2));
+    return { c: map.unproject(c, z), z };
+  }
+  const _flyTo = map.flyTo.bind(map);
+  map.flyTo = (ll, z = map.getZoom(), o) => _flyTo(centreFor(ll, z), z, o);
+  map.flyToBounds = (b, o = {}) => {
+    const p = Array.isArray(o.padding) ? o.padding : [0, 0];
+    const t = boundsTarget(L.latLngBounds(b), p, o.maxZoom);
+    return _flyTo(t.c, t.z, o);
+  };
+  const fitThailand = (animate = true) => {
+    const t = boundsTarget(TH_BOUNDS, [10, 10]);
+    if (animate) _flyTo(t.c, t.z); else map.setView(t.c, t.z, { animate: false });
+  };
   L.control.zoom({ position: 'topright' }).addTo(map);
   const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
   const street = L.tileLayer(ESRI + 'World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
@@ -285,6 +318,9 @@
   map.createPane('mask');
   map.getPane('mask').style.zIndex = 350;
   map.getPane('mask').style.pointerEvents = 'none';
+  L.polygon([[[-85, -180], [85, -180], [85, 180], [-85, 180]],
+    [[MASK_BOX.getSouth(), MASK_BOX.getWest()], [MASK_BOX.getNorth(), MASK_BOX.getWest()], [MASK_BOX.getNorth(), MASK_BOX.getEast()], [MASK_BOX.getSouth(), MASK_BOX.getEast()]]],
+  { pane: 'mask', interactive: false, stroke: false, fillColor: '#05070a', fillOpacity: 0.6 }).addTo(map);
   if (window.NEIGHBORS) {
     L.geoJSON(window.NEIGHBORS, {
       pane: 'mask', interactive: false,
@@ -1552,12 +1588,12 @@
   $('#region').addEventListener('change', (e) => {
     state.region = e.target.value;
     const r = REGIONS[state.region];
-    if (state.region === 'all') map.flyToBounds(TH_BOUNDS); else map.flyTo(r.center, r.zoom);
+    if (state.region === 'all') fitThailand(); else map.flyTo(r.center, r.zoom);
     onFilterChanged();
   });
 
   $('#dropNoteBtn').addEventListener('click', () => { if (!ensureMe()) return; setMode(state.mode === 'note' ? null : 'note'); });
-  $('#fitThaiBtn').addEventListener('click', () => map.flyToBounds(TH_BOUNDS));
+  $('#fitThaiBtn').addEventListener('click', () => fitThailand());
   $('#familyBtn').addEventListener('click', fitFamily);
   $('#meetBtn').addEventListener('click', () => { if (!ensureMe()) return; setMode(state.mode === 'meet' ? null : 'meet'); });
   $('#locateBtn').addEventListener('click', () => {
@@ -1926,10 +1962,16 @@
     $('#hudTitle').textContent = title;
     $('#hudStats').innerHTML = cards.join('');
   }
-  const setPanel = (on) => { $('#app').classList.toggle('panel-off', !on); LS.set('panelOff', !on); };
+  const setPanel = (on, shift = true) => {
+    const before = viewPad();
+    $('#app').classList.toggle('panel-off', !on); LS.set('panelOff', !on);
+    if (!shift) return;
+    const after = () => { const P = viewPad(); map.panBy([((P.r - P.l) - (before.r - before.l)) / 2, ((P.b - P.t) - (before.b - before.t)) / 2]); };
+    if (on) setTimeout(after, 320); else after();
+  };
   $('#panelHide').addEventListener('click', () => setPanel(false));
   $('#panelShow').addEventListener('click', () => setPanel(true));
-  if (LS.get('panelOff', false)) setPanel(false);
+  if (LS.get('panelOff', false)) setPanel(false, false);
 
   // ── static texts & language switch ──────────────────────────
   $$('[data-i18n]').forEach((el) => { el.textContent = T(el.dataset.i18n); });
@@ -1942,6 +1984,7 @@
   $('#langBtn').addEventListener('click', () => { LS.set('lang', LANG === 'sv' ? 'en' : 'sv'); location.reload(); });
 
   // ── boot ────────────────────────────────────────────────────
+  fitThailand(false);
   const urlFamily = new URLSearchParams(location.search).get('family');
   if (urlFamily && urlFamily.toLowerCase() !== state.family) openJoin();
   else if (!state.me) setTimeout(openJoin, 400);
